@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+    <!-- Material dynamic colors for dashboard -->
+    <color name="material_dynamic_primary90">#E3F2FD</color>
+    <color name="material_dynamic_primary40">#1976D2</color>
+    <color name="material_dynamic_primary30">#1565C0</color>
+    <color name="material_dynamic_secondary90">#FFF8E1</color>
+    <color name="material_dynamic_secondary40">#FFA000</color>
+    <color name="material_dynamic_secondary30">#FF8F00</color>
+</resources>

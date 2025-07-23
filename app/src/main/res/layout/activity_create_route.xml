@@ -1,0 +1,129 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp"
+    android:background="#F5F5F5">
+
+    <!-- Origin Input -->
+    <Switch
+        android:id="@+id/use_db_locations_switch"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/use_database_locations"
+        android:layout_marginTop="16dp"
+        android:checked="false"
+        tools:ignore="UseSwitchCompatOrMaterialXml" />
+
+    <AutoCompleteTextView
+        android:id="@+id/origin_input"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="@string/enter_origin"
+        android:padding="12dp"
+        android:background="@android:drawable/editbox_background"
+        android:textColor="#333"
+        android:textSize="16sp" />
+
+    <!-- Destination Input -->
+    <AutoCompleteTextView
+        android:id="@+id/destination_input"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="@string/enter_destination"
+        android:padding="12dp"
+        android:background="@android:drawable/editbox_background"
+        android:textColor="#333"
+        android:textSize="16sp"
+        android:layout_marginTop="8dp" />
+
+    <!-- Price Input -->
+    <EditText
+        android:id="@+id/price_input"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:autofillHints=""
+        android:hint="@string/enter_price"
+        android:inputType="numberDecimal"
+        android:padding="12dp"
+        android:background="@android:drawable/editbox_background"
+        android:textColor="#333"
+        android:textSize="16sp"
+        android:layout_marginTop="8dp" />
+
+    <!-- Horizontal Layout for Buttons -->
+    <LinearLayout
+        style="?android:attr/buttonBarStyle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="12dp"
+        android:weightSum="2">
+
+        <Button
+            android:id="@+id/save_route_button"
+            style="?android:attr/buttonBarButtonStyle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/save_route"
+            android:padding="12dp"
+            android:backgroundTint="#4CAF50"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:layout_marginEnd="8dp" />
+
+        <Button
+            android:id="@+id/add_waypoint_button"
+            style="?android:attr/buttonBarButtonStyle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/add_waypoint"
+            android:padding="12dp"
+            android:backgroundTint="#FF9800"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:layout_marginStart="8dp"/>
+    </LinearLayout>
+
+    <!-- Route Info TextView (Placed Below Buttons) -->
+    <TextView
+        android:id="@+id/route_info_text_view"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="8dp"
+        android:textAlignment="center"
+        android:textSize="16sp"
+        android:textColor="#000"
+        android:textStyle="bold"
+        android:visibility="gone"
+        android:layout_marginTop="12dp"/>
+
+    <!-- MapView and ImageButton Inside FrameLayout -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_marginTop="12dp"
+        android:background="@android:color/darker_gray">
+
+        <!-- Google Map -->
+        <com.google.android.gms.maps.MapView
+            android:id="@+id/map_view"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+        <!-- Toggle Map Type Button -->
+        <ImageButton
+            android:id="@+id/map_type_toggle_button"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_gravity="top|start"
+            android:layout_margin="16dp"
+            android:background="@drawable/circular_button_background"
+            android:src="@drawable/ic_satellite_view"
+            android:contentDescription="@string/toggle_map_view" />
+    </FrameLayout>
+
+</LinearLayout>
