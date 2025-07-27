@@ -55,6 +55,7 @@ import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
 class CreateRouteActivity : AppCompatActivity(), OnMapReadyCallback {
+
     private lateinit var mapView: MapView
     private lateinit var googleMap: GoogleMap
     private lateinit var originInput: AutoCompleteTextView
