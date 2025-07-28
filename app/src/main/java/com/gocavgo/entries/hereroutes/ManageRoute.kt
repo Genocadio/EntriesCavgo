@@ -1,7 +1,6 @@
 package com.gocavgo.entries.hereroutes
 
 import android.Manifest
-import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.text.Editable
@@ -22,7 +21,6 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.gocavgo.entries.BuildConfig
-import com.gocavgo.entries.PermissionManager
 import com.gocavgo.entries.R
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
@@ -38,7 +36,6 @@ import com.here.sdk.core.errors.InstantiationErrorException
 import com.here.sdk.gestures.TapListener
 import com.here.sdk.mapview.LocationIndicator
 import com.here.sdk.mapview.MapCameraAnimationFactory
-import com.here.sdk.mapview.MapImage
 import com.here.sdk.mapview.MapImageFactory
 import com.here.sdk.mapview.MapMarker
 import com.here.sdk.mapview.MapMeasure
@@ -83,6 +80,8 @@ class ManageRoute : AppCompatActivity() {
     private var isSelectingWaypoint = false
     private var selectedOrigin: GeoCoordinates? = null
     private var selectedDestination: GeoCoordinates? = null
+
+    private var searchedLocation: Place? = null
 
     // Available map schemes
     private val mapSchemes = listOf(
@@ -206,9 +205,18 @@ class ManageRoute : AppCompatActivity() {
         searchAutoComplete.setAdapter(suggestionsAdapter)
         searchAutoComplete.threshold = 1
 
-        // Keep suggestions open even when not focused
-        searchAutoComplete.setOnFocusChangeListener { _, hasFocus ->
+        // SOLUTION 1: Override focus change behavior to keep suggestions visible
+        searchAutoComplete.setOnFocusChangeListener { view, hasFocus ->
             if (hasFocus && searchAutoComplete.text.isNotEmpty() && suggestionsAdapter.count > 0) {
+                // Show dropdown when focused and there are suggestions
+                searchAutoComplete.showDropDown()
+            }
+            // Don't automatically dismiss when losing focus - let user control this
+        }
+
+        // SOLUTION 2: Add click listener to keep dropdown visible when clicking on the field
+        searchAutoComplete.setOnClickListener {
+            if (searchAutoComplete.text.isNotEmpty() && suggestionsAdapter.count > 0) {
                 searchAutoComplete.showDropDown()
             }
         }
@@ -221,10 +229,11 @@ class ManageRoute : AppCompatActivity() {
                 val query = s?.toString()?.trim() ?: ""
 
                 if (isUserInput) {
-                    if (query.isNotEmpty() && query.length >= 1) {
+                    if (query.isNotEmpty()) {
                         Log.d(TAG, "Performing auto-suggest for: $query")
                         performAutoSuggest(query)
                     } else if (query.isEmpty()) {
+                        // SOLUTION 3: Only clear and hide when search box is actually empty
                         suggestions.clear()
                         suggestionsAdapter.clear()
                         suggestionsAdapter.notifyDataSetChanged()
@@ -239,7 +248,7 @@ class ManageRoute : AppCompatActivity() {
             override fun afterTextChanged(s: Editable?) {}
         })
 
-        // Handle item selection from suggestions - UPDATED
+        // Handle item selection from suggestions
         searchAutoComplete.setOnItemClickListener { parent, view, position, id ->
             Log.d(TAG, "Suggestion item clicked at position: $position")
 
@@ -258,8 +267,8 @@ class ManageRoute : AppCompatActivity() {
                 selectedSuggestion.place?.let { place ->
                     place.geoCoordinates?.let { coordinates ->
                         Log.d(TAG, "Moving to place coordinates: $coordinates")
-                        handleLocationSelection(coordinates, place.title ?: suggestionTitle)
-                        addSearchMarker(coordinates, place.title ?: suggestionTitle)
+                        handleLocationSelection(coordinates, place.title)
+                        addSearchMarker(coordinates, place.title)
                         flyTo(coordinates)
                     }
                 } ?: run {
@@ -267,6 +276,7 @@ class ManageRoute : AppCompatActivity() {
                     performTextSearch(suggestionTitle)
                 }
 
+                // SOLUTION 4: Only clear suggestions after successful selection
                 suggestions.clear()
                 suggestionsAdapter.clear()
                 suggestionsAdapter.notifyDataSetChanged()
@@ -279,23 +289,32 @@ class ManageRoute : AppCompatActivity() {
             isUserInput = true
         }
 
-        // Handle search action
+        // SOLUTION 5: Modified search action to keep suggestions visible after hiding keyboard
         searchAutoComplete.setOnEditorActionListener { textView, actionId, event ->
             if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH) {
                 val query = searchAutoComplete.text.toString().trim()
                 Log.d(TAG, "Search action triggered with query: $query")
 
-                val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                // Hide keyboard
+                val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
                 imm.hideSoftInputFromWindow(searchAutoComplete.windowToken, 0)
 
-                Log.d(TAG, "Search button pressed - keyboard hidden but suggestions remain visible")
+                // IMPORTANT: Show dropdown again after hiding keyboard if we have suggestions
+                searchAutoComplete.post {
+                    if (suggestionsAdapter.count > 0) {
+                        searchAutoComplete.showDropDown()
+                        Log.d(TAG, "Dropdown reshown after hiding keyboard")
+                    }
+                }
+
+                Log.d(TAG, "Search button pressed - keyboard hidden but suggestions kept visible")
                 true
             } else {
                 false
             }
         }
 
-        // Clear search functionality - UPDATED
+        // Clear search functionality - keep existing logic
         clearSearchButton.setOnClickListener {
             Log.d(TAG, "Clear search button clicked")
             searchAutoComplete.text.clear()
@@ -324,6 +343,7 @@ class ManageRoute : AppCompatActivity() {
             Log.d(TAG, "Search cleared and state reset")
         }
     }
+
 
 
 
@@ -360,7 +380,7 @@ class ManageRoute : AppCompatActivity() {
 
         val searchOptions = SearchOptions().apply {
             languageCode = com.here.sdk.core.LanguageCode.EN_US
-            maxItems = 10 // Increased from 5 to get more suggestions
+            maxItems = 10
         }
 
         val textQuery = TextQuery(query, TextQuery.Area(centerCoordinates))
@@ -369,15 +389,14 @@ class ManageRoute : AppCompatActivity() {
             override fun onSuggestCompleted(searchError: SearchError?, list: List<Suggestion>?) {
                 if (searchError != null) {
                     Log.d(TAG, "Autosuggest Error: ${searchError.name}")
-                    // Clear suggestions on error but don't dismiss dropdown immediately
                     runOnUiThread {
                         suggestions.clear()
                         suggestionsAdapter.clear()
                         suggestionsAdapter.notifyDataSetChanged()
-                        // Only dismiss if there are no suggestions
+                        // Only dismiss if there are actually no suggestions
                         if (suggestionsAdapter.count == 0) {
                             searchAutoComplete.dismissDropDown()
-                            Log.d(TAG, "No suggestions available - dropdown dismissed")
+                            Log.d(TAG, "No suggestions due to error - dropdown dismissed")
                         }
                     }
                     return
@@ -390,20 +409,19 @@ class ManageRoute : AppCompatActivity() {
                     suggestions.addAll(suggestionList)
 
                     val suggestionTitles = suggestionList.mapNotNull { suggestion ->
-                        // Better handling of suggestion titles
                         val title = suggestion.title
                         val place = suggestion.place
 
                         when {
                             place != null -> {
-                                val address = place.address?.addressText
-                                if (!address.isNullOrEmpty() && address != title) {
+                                val address = place.address.addressText
+                                if (address.isNotEmpty() && address != title) {
                                     "$title - $address"
                                 } else {
                                     title
                                 }
                             }
-                            !title.isNullOrEmpty() -> title
+                            title.isNotEmpty() -> title
                             else -> null
                         }
                     }.filter { it.isNotEmpty() }
@@ -413,13 +431,13 @@ class ManageRoute : AppCompatActivity() {
                         if (suggestionTitles.isNotEmpty()) {
                             suggestionsAdapter.addAll(suggestionTitles)
                             Log.d(TAG, "Added ${suggestionTitles.size} suggestion titles to adapter")
-                            // Show dropdown when we have suggestions
-                            if (searchAutoComplete.hasFocus()) {
-                                searchAutoComplete.showDropDown()
-                            }
+
+                            // SOLUTION 7: Always show dropdown when we have valid suggestions
+                            // regardless of focus state
+                            searchAutoComplete.showDropDown()
+                            Log.d(TAG, "Dropdown shown with suggestions")
                         } else {
                             Log.d(TAG, "No valid suggestion titles found")
-                            // Only dismiss if there are no suggestions
                             searchAutoComplete.dismissDropDown()
                             Log.d(TAG, "No valid suggestions - dropdown dismissed")
                         }
@@ -431,7 +449,6 @@ class ManageRoute : AppCompatActivity() {
                         suggestions.clear()
                         suggestionsAdapter.clear()
                         suggestionsAdapter.notifyDataSetChanged()
-                        // Only dismiss if there are no suggestions
                         searchAutoComplete.dismissDropDown()
                         Log.d(TAG, "Null suggestion list - dropdown dismissed")
                     }
@@ -439,7 +456,6 @@ class ManageRoute : AppCompatActivity() {
             }
         })
     }
-
 
 
     private fun performTextSearch(query: String) {
@@ -476,12 +492,13 @@ class ManageRoute : AppCompatActivity() {
 
                         if (places.isNotEmpty()) {
                             val firstPlace = places[0]
+                            Log.d(TAG, "First search result: ${firstPlace.toString()} at ${firstPlace.geoCoordinates}")
                             firstPlace.geoCoordinates?.let { coordinates ->
                                 // Handle location selection based on current mode
-                                handleLocationSelection(coordinates, firstPlace.title ?: query)
+                                handleLocationSelection(coordinates, firstPlace.title)
 
                                 // Add marker and move camera
-                                addSearchMarker(coordinates, firstPlace.title ?: "Selected Location")
+                                addSearchMarker(coordinates, firstPlace.title)
                                 flyTo(coordinates)
                             }
 
@@ -649,7 +666,7 @@ class ManageRoute : AppCompatActivity() {
 
         // A LocationIndicator is intended to mark the user's current location,
         // including a bearing direction.
-        val location: Location = Location(geoCoordinates)
+        val location = Location(geoCoordinates)
         location.time = Date()
         location.bearingInDegrees = getRandom(0.0, 360.0)
 
