@@ -82,6 +82,11 @@ class ManageRoute : AppCompatActivity() {
     private var selectedDestination: GeoCoordinates? = null
     private var currentSelectedPlace: Place? = null
 
+    // NEW: Place objects for route planning
+    private var originPlace: Place? = null
+    private var destinationPlace: Place? = null
+    private var waypointPlaces: MutableList<Place> = mutableListOf()
+
     // Available map schemes
     private val mapSchemes = listOf(
         MapScheme.NORMAL_DAY,
@@ -234,7 +239,7 @@ class ManageRoute : AppCompatActivity() {
             currentSelectedPlace = place
 
             place.geoCoordinates?.let { coordinates ->
-                handleLocationSelection(coordinates, place.title)
+                handleLocationSelection(coordinates, place.title, place)
                 mapController.addSearchMarker(coordinates, place.title)
                 mapController.moveMapToLocation(coordinates)
 
@@ -288,7 +293,7 @@ class ManageRoute : AppCompatActivity() {
                     Log.d(TAG, "Switched to waypoint selection mode")
                 }
                 "save_route" -> {
-                    Log.d(TAG, "Route saved with origin: $selectedOrigin, destination: $selectedDestination")
+                    logRouteDetails()
                     Toast.makeText(this, "Route saved to log", Toast.LENGTH_SHORT).show()
                 }
                 "clear_route" -> {
@@ -349,27 +354,28 @@ class ManageRoute : AppCompatActivity() {
         }
     }
 
-    fun getSelectionState() = Triple(isSelectingOrigin, isSelectingDestination, isSelectingWaypoint)
-
-    fun getCurrentSelectedPlace() = currentSelectedPlace
-
-    fun getRouteData() = Triple(selectedOrigin, selectedDestination, routingExample.hasActiveRoute())
-
-    private fun handleLocationSelection(coordinates: GeoCoordinates, title: String) {
+    private fun handleLocationSelection(coordinates: GeoCoordinates, title: String, place: Place? = null) {
         when {
             isSelectingOrigin -> {
                 selectedOrigin = coordinates
+                originPlace = place
                 routingExample.setOrigin(coordinates)
                 Log.d(TAG, "Origin selected: $title at ${coordinates.latitude}, ${coordinates.longitude}")
+                Log.d(TAG, "Origin place details: ${place?.title} - ${place?.address}")
             }
             isSelectingDestination -> {
                 selectedDestination = coordinates
+                destinationPlace = place
                 routingExample.setDestination(coordinates)
                 Log.d(TAG, "Destination selected: $title at ${coordinates.latitude}, ${coordinates.longitude}")
+                Log.d(TAG, "Destination place details: ${place?.title} - ${place?.address}")
             }
             isSelectingWaypoint -> {
                 routingExample.addWaypoint(coordinates)
+                place?.let { waypointPlaces.add(it) }
                 Log.d(TAG, "Waypoint added: $title at ${coordinates.latitude}, ${coordinates.longitude}")
+                Log.d(TAG, "Waypoint place details: ${place?.title} - ${place?.address}")
+                Log.d(TAG, "Total waypoints: ${waypointPlaces.size}")
             }
         }
     }
@@ -391,6 +397,12 @@ class ManageRoute : AppCompatActivity() {
                     Math.abs(currentMarkerCoords.longitude - selectedOrigin!!.longitude) < 0.0001) {
 
                     selectedOrigin = newCoordinates
+                    // Update origin place coordinates if it exists
+                    originPlace?.let { place ->
+                        // Note: We can't modify the existing Place object, but we keep the reference
+                        // for other place data (title, address, etc.) while using updated coordinates
+                        Log.d(TAG, "Origin place '${place.title}' coordinates updated")
+                    }
                     routingExample.updateOrigin(newCoordinates)
                     routeNeedsRecalculation = true
                     Log.d(TAG, "Updated origin coordinates and triggered route recalculation")
@@ -400,14 +412,20 @@ class ManageRoute : AppCompatActivity() {
                     Math.abs(currentMarkerCoords.longitude - selectedDestination!!.longitude) < 0.0001) {
 
                     selectedDestination = newCoordinates
+                    // Update destination place coordinates if it exists
+                    destinationPlace?.let { place ->
+                        Log.d(TAG, "Destination place '${place.title}' coordinates updated")
+                    }
                     routingExample.updateDestination(newCoordinates)
                     routeNeedsRecalculation = true
                     Log.d(TAG, "Updated destination coordinates and triggered route recalculation")
                 }
                 else {
                     val waypointIndex = routingExample.findWaypointIndex(currentMarkerCoords)
-                    if (waypointIndex >= 0) {
+                    if (waypointIndex >= 0 && waypointIndex < waypointPlaces.size) {
                         routingExample.updateWaypoint(waypointIndex, newCoordinates)
+                        val waypointPlace = waypointPlaces[waypointIndex]
+                        Log.d(TAG, "Waypoint place '${waypointPlace.title}' coordinates updated")
                         routeNeedsRecalculation = true
                         Log.d(TAG, "Updated waypoint $waypointIndex coordinates and triggered route recalculation")
                     }
@@ -427,6 +445,11 @@ class ManageRoute : AppCompatActivity() {
         selectedDestination = null
         currentSelectedPlace = null
 
+        // Clear place objects
+        originPlace = null
+        destinationPlace = null
+        waypointPlaces.clear()
+
         mapController.cancelMarkerMove()
         uiController.clearSearchState()
         uiController.resetToInitialState()
@@ -434,7 +457,40 @@ class ManageRoute : AppCompatActivity() {
         routingExample.clearRouteData()
         mapController.clearSearchMarkers()
 
-        Log.d(TAG, "Reset to initial state completed")
+        Log.d(TAG, "Reset to initial state completed - all places cleared")
+    }
+
+    // NEW: Helper method to log complete route details
+    private fun logRouteDetails() {
+        Log.d(TAG, "=== ROUTE DETAILS ===")
+
+        originPlace?.let { place ->
+            Log.d(TAG, "Origin: ${place.title}")
+            Log.d(TAG, "  Address: ${place.address}")
+            Log.d(TAG, "  Type: ${place.placeType}")
+            Log.d(TAG, "  Coordinates: ${place.geoCoordinates?.latitude}, ${place.geoCoordinates?.longitude}")
+        } ?: Log.d(TAG, "Origin: Not set")
+
+        destinationPlace?.let { place ->
+            Log.d(TAG, "Destination: ${place.title}")
+            Log.d(TAG, "  Address: ${place.address}")
+            Log.d(TAG, "  Type: ${place.placeType}")
+            Log.d(TAG, "  Coordinates: ${place.geoCoordinates?.latitude}, ${place.geoCoordinates?.longitude}")
+        } ?: Log.d(TAG, "Destination: Not set")
+
+        if (waypointPlaces.isNotEmpty()) {
+            Log.d(TAG, "Waypoints (${waypointPlaces.size}):")
+            waypointPlaces.forEachIndexed { index, place ->
+                Log.d(TAG, "  ${index + 1}. ${place.title}")
+                Log.d(TAG, "     Address: ${place.address}")
+                Log.d(TAG, "     Type: ${place.placeType}")
+                Log.d(TAG, "     Coordinates: ${place.geoCoordinates?.latitude}, ${place.geoCoordinates?.longitude}")
+            }
+        } else {
+            Log.d(TAG, "Waypoints: None")
+        }
+
+        Log.d(TAG, "==================")
     }
 
     @RequiresPermission(allOf = [Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION])
