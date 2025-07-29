@@ -22,7 +22,6 @@ import android.app.AlertDialog
 import android.content.Context
 import android.util.Log
 import android.widget.Toast
-import com.gocavgo.entries.R
 import com.here.sdk.core.Color
 import com.here.sdk.core.GeoCoordinates
 import com.here.sdk.core.GeoPolyline
@@ -30,9 +29,6 @@ import com.here.sdk.core.Point2D
 import com.here.sdk.core.errors.InstantiationErrorException
 import com.here.sdk.mapview.LineCap
 import com.here.sdk.mapview.MapCamera
-import com.here.sdk.mapview.MapImage
-import com.here.sdk.mapview.MapImageFactory
-import com.here.sdk.mapview.MapMarker
 import com.here.sdk.mapview.MapMeasure
 import com.here.sdk.mapview.MapMeasureDependentRenderSize
 import com.here.sdk.mapview.MapPolyline
@@ -57,7 +53,7 @@ import java.util.Locale
 
 class RoutingExample(private val context: Context, private val mapView: MapView) {
 
-    private val mapMarkerList = arrayListOf<MapMarker>()
+    // Removed marker management - let ManageRoute handle all markers
     private val mapPolylines = arrayListOf<MapPolyline>()
     private var routingEngine: RoutingEngine? = null
 
@@ -68,6 +64,9 @@ class RoutingExample(private val context: Context, private val mapView: MapView)
 
     private var trafficDisabled = false
     private val timeUtils = TimeUtils()
+
+    // Callback for route calculation results
+    var onRouteCalculated: ((Route?) -> Unit)? = null
 
     init {
         val camera: MapCamera = mapView.camera
@@ -87,7 +86,7 @@ class RoutingExample(private val context: Context, private val mapView: MapView)
         originCoordinates = coordinates
         Log.d(TAG, "Origin set to: ${coordinates.latitude}, ${coordinates.longitude}")
         clearRoute() // Clear any existing route
-        showWaypointsOnMap() // Update markers
+        // Don't manage markers here - let ManageRoute handle them
     }
 
     // New method to set destination and calculate route
@@ -114,6 +113,55 @@ class RoutingExample(private val context: Context, private val mapView: MapView)
         calculateRouteWithWaypoints()
     }
 
+    // Method to update origin coordinates and recalculate route
+    fun updateOrigin(coordinates: GeoCoordinates) {
+        originCoordinates = coordinates
+        Log.d(TAG, "Origin updated to: ${coordinates.latitude}, ${coordinates.longitude}")
+
+        // Always recalculate if we have a destination
+        if (destinationCoordinates != null) {
+            calculateRouteWithWaypoints()
+        }
+    }
+
+    // Method to update destination coordinates and recalculate route
+    fun updateDestination(coordinates: GeoCoordinates) {
+        destinationCoordinates = coordinates
+        Log.d(TAG, "Destination updated to: ${coordinates.latitude}, ${coordinates.longitude}")
+
+        // Always recalculate if we have an origin
+        if (originCoordinates != null) {
+            calculateRouteWithWaypoints()
+        }
+    }
+
+    // Method to update waypoint coordinates and recalculate route
+    fun updateWaypoint(oldIndex: Int, coordinates: GeoCoordinates) {
+        if (oldIndex >= 0 && oldIndex < waypointsList.size) {
+            waypointsList[oldIndex] = coordinates
+            Log.d(TAG, "Waypoint $oldIndex updated to: ${coordinates.latitude}, ${coordinates.longitude}")
+
+            // Always recalculate if we have origin and destination
+            if (originCoordinates != null && destinationCoordinates != null) {
+                calculateRouteWithWaypoints()
+            }
+        } else {
+            Log.w(TAG, "Invalid waypoint index: $oldIndex. Current waypoints count: ${waypointsList.size}")
+        }
+    }
+
+    // Method to remove waypoint and recalculate route
+    fun removeWaypoint(index: Int) {
+        if (index >= 0 && index < waypointsList.size) {
+            val removed = waypointsList.removeAt(index)
+            Log.d(TAG, "Waypoint removed: ${removed.latitude}, ${removed.longitude}")
+
+            if (originCoordinates != null && destinationCoordinates != null) {
+                calculateRouteWithWaypoints()
+            }
+        }
+    }
+
     // Updated method to calculate route with current origin, destination and waypoints
     private fun calculateRouteWithWaypoints() {
         val origin = originCoordinates ?: return
@@ -134,11 +182,61 @@ class RoutingExample(private val context: Context, private val mapView: MapView)
 
     // Method to clear current route data
     fun clearRouteData() {
+        Log.d(TAG, "Clearing route data - Origin: $originCoordinates, Destination: $destinationCoordinates, Waypoints: ${waypointsList.size}")
+
         originCoordinates = null
         destinationCoordinates = null
         waypointsList.clear()
+
+        // Clear the visual route from map
         clearMap()
+
+        Log.d(TAG, "Route data cleared successfully")
     }
+
+
+
+    // Method to get current waypoints for external marker management
+    fun getCurrentWaypoints(): List<GeoCoordinates> {
+        val allWaypoints = arrayListOf<GeoCoordinates>()
+        originCoordinates?.let { allWaypoints.add(it) }
+        allWaypoints.addAll(waypointsList)
+        destinationCoordinates?.let { allWaypoints.add(it) }
+        return allWaypoints
+    }
+
+    fun isOrigin(coordinates: GeoCoordinates): Boolean {
+        return originCoordinates?.let {
+            val latDiff = Math.abs(it.latitude - coordinates.latitude)
+            val lonDiff = Math.abs(it.longitude - coordinates.longitude)
+            latDiff < 0.0001 && lonDiff < 0.0001
+        } ?: false
+    }
+
+    fun isDestination(coordinates: GeoCoordinates): Boolean {
+        return destinationCoordinates?.let {
+            val latDiff = Math.abs(it.latitude - coordinates.latitude)
+            val lonDiff = Math.abs(it.longitude - coordinates.longitude)
+            latDiff < 0.0001 && lonDiff < 0.0001
+        } ?: false
+    }
+
+    fun hasActiveRoute(): Boolean {
+        return originCoordinates != null && destinationCoordinates != null
+    }
+
+
+
+    // Method to find waypoint index by coordinates
+    fun findWaypointIndex(coordinates: GeoCoordinates): Int {
+        return waypointsList.indexOfFirst { waypoint ->
+            val latDiff = Math.abs(waypoint.latitude - coordinates.latitude)
+            val lonDiff = Math.abs(waypoint.longitude - coordinates.longitude)
+            latDiff < 0.0001 && lonDiff < 0.0001
+        }
+    }
+
+
 
     // Legacy method for backward compatibility
     fun addRoute() {
@@ -163,42 +261,16 @@ class RoutingExample(private val context: Context, private val mapView: MapView)
                         logRouteSectionDetails(route)
                         logRouteViolations(route)
                         logTollDetails(route)
-                        showWaypointsOnMap()
+
+                        // Notify callback with successful route
+                        onRouteCalculated?.invoke(route)
                     } else {
                         showDialog("Error while calculating a route:", routingError.toString())
+                        // Notify callback with null route (error)
+                        onRouteCalculated?.invoke(null)
                     }
                 }
             })
-    }
-
-    // Updated waypoints display method
-    private fun showWaypointsOnMap() {
-        // Clear existing waypoint markers
-        clearWaypointMapMarker()
-
-        val allWaypoints = arrayListOf<GeoCoordinates>()
-
-        originCoordinates?.let { allWaypoints.add(it) }
-        allWaypoints.addAll(waypointsList)
-        destinationCoordinates?.let { allWaypoints.add(it) }
-
-        for (i in allWaypoints.indices) {
-            val coordinates = allWaypoints[i]
-            when {
-                i == 0 -> {
-                    // Origin marker (green)
-                    addCircleMapMarker(coordinates, R.drawable.green_dot)
-                }
-                i == allWaypoints.size - 1 -> {
-                    // Destination marker (green)
-                    addCircleMapMarker(coordinates, R.drawable.green_dot)
-                }
-                else -> {
-                    // Intermediate waypoint marker (red)
-                    addCircleMapMarker(coordinates, R.drawable.red_dot)
-                }
-            }
-        }
     }
 
     // Legacy addWaypoints method for backward compatibility
@@ -410,15 +482,8 @@ class RoutingExample(private val context: Context, private val mapView: MapView)
         }
 
     fun clearMap() {
-        clearWaypointMapMarker()
+        // Only clear route polylines, let ManageRoute handle markers
         clearRoute()
-    }
-
-    private fun clearWaypointMapMarker() {
-        for (mapMarker in mapMarkerList) {
-            mapView.mapScene.removeMapMarker(mapMarker)
-        }
-        mapMarkerList.clear()
     }
 
     private fun clearRoute() {
@@ -497,13 +562,6 @@ class RoutingExample(private val context: Context, private val mapView: MapView)
 
     private fun getRandom(min: Double, max: Double): Double {
         return min + Math.random() * (max - min)
-    }
-
-    private fun addCircleMapMarker(geoCoordinates: GeoCoordinates, resourceId: Int) {
-        val mapImage: MapImage = MapImageFactory.fromResource(context.resources, resourceId)
-        val mapMarker = MapMarker(geoCoordinates, mapImage)
-        mapView.mapScene.addMapMarker(mapMarker)
-        mapMarkerList.add(mapMarker)
     }
 
     private fun showDialog(title: String, message: String) {
