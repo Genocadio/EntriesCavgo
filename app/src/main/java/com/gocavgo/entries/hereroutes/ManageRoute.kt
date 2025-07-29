@@ -1,18 +1,19 @@
 package com.gocavgo.entries.hereroutes
 
 import android.Manifest
+import android.annotation.SuppressLint
+import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
 import android.util.Log
 import android.view.View
-import android.view.inputmethod.InputMethodManager
-import android.widget.ArrayAdapter
 import android.widget.AutoCompleteTextView
 import android.widget.Button
 import android.widget.ImageButton
 import android.widget.LinearLayout
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.annotation.RequiresPermission
@@ -42,13 +43,7 @@ import com.here.sdk.mapview.MapMeasure
 import com.here.sdk.mapview.MapScheme
 import com.here.sdk.mapview.MapView
 import com.here.sdk.search.Place
-import com.here.sdk.search.SearchCallback
 import com.here.sdk.search.SearchEngine
-import com.here.sdk.search.SearchError
-import com.here.sdk.search.SearchOptions
-import com.here.sdk.search.SuggestCallback
-import com.here.sdk.search.Suggestion
-import com.here.sdk.search.TextQuery
 import com.here.time.Duration
 import java.util.Calendar
 import java.util.Date
@@ -59,29 +54,52 @@ class ManageRoute : AppCompatActivity() {
     private val locationIndicatorList = arrayListOf<LocationIndicator>()
     private lateinit var locationClient: FusedLocationProviderClient
     private val TAG = ManageRoute::class.java.simpleName
-    private lateinit var mapStyleButton: Button
+    private lateinit var mapStyleFab: com.google.android.material.floatingactionbutton.FloatingActionButton
     private lateinit var searchAutoComplete: AutoCompleteTextView
     private lateinit var clearSearchButton: ImageButton
     private lateinit var myLocationFab: com.google.android.material.floatingactionbutton.FloatingActionButton
     private lateinit var searchEngine: SearchEngine
 
+    // UI containers
+    private lateinit var bottomContainer: LinearLayout
+    private lateinit var searchContainer: LinearLayout
+    private lateinit var searchOverlay: LinearLayout
+    private lateinit var searchHintText: TextView
+    private lateinit var backSearchButton: ImageButton
+    private lateinit var placeDetailsContainer: LinearLayout
+    private lateinit var routeSummaryContainer: LinearLayout
+    private lateinit var routeActionsContainer: LinearLayout
+
+    // Place details views
+    private lateinit var tvPlaceTitle: TextView
+    private lateinit var tvPlaceAddress: TextView
+    private lateinit var tvPlaceType: TextView
+
+    // Route summary views
+    private lateinit var tvRouteDistance: TextView
+    private lateinit var tvRouteDuration: TextView
+    private lateinit var btnStartNavigation: Button
+
     // Search related variables
     private val searchMarkers = arrayListOf<MapMarker>()
-    private val suggestions = arrayListOf<Suggestion>()
-    private lateinit var suggestionsAdapter: ArrayAdapter<String>
-    private var isUserInput = true
     private lateinit var routingExample: RoutingExample
     private lateinit var saveLocationButton: Button
     private lateinit var addDestinationButton: Button
     private lateinit var addWaypointButton: Button
+    private lateinit var saveRouteButton: Button
+    private lateinit var clearRouteButton: Button
     private lateinit var locationActionsContainer: LinearLayout
+
     private var isSelectingOrigin = true
     private var isSelectingDestination = false
     private var isSelectingWaypoint = false
     private var selectedOrigin: GeoCoordinates? = null
     private var selectedDestination: GeoCoordinates? = null
+    private var currentSelectedPlace: Place? = null
 
-    private var searchedLocation: Place? = null
+    private lateinit var searchManager: SearchManager
+
+
 
     // Available map schemes
     private val mapSchemes = listOf(
@@ -97,9 +115,7 @@ class ManageRoute : AppCompatActivity() {
         "Normal Night",
         "Satellite",
         "Hybrid Day",
-        "Hybrid Night",
-        "Terrain Day",
-        "Terrain Night"
+        "Hybrid Night"
     )
 
     private var currentSchemeIndex = 0
@@ -122,7 +138,9 @@ class ManageRoute : AppCompatActivity() {
 
         initializeViews()
         setupMapStyleButton()
+        searchManager = SearchManager(this)
         setupSearchFunctionality()
+        setupSearchManagerCallbacks()
         setupMyLocationButton()
 
         mapView?.onCreate(savedInstanceState)
@@ -137,89 +155,62 @@ class ManageRoute : AppCompatActivity() {
         }
     }
 
-    private fun initializeViews() {
-        mapView = findViewById(R.id.map_view)
-        mapStyleButton = findViewById(R.id.btn_map_style)
-        searchAutoComplete = findViewById(R.id.search_autocomplete)
-        clearSearchButton = findViewById(R.id.clear_search)
-        myLocationFab = findViewById(R.id.fab_my_location)
+    private fun setupSearchManagerCallbacks() {
+        searchManager.onPlaceSelected = { place ->
+            Log.d(TAG, "Place selected: ${place.title} at ${place.areaType}")
+            currentSelectedPlace = place
 
-        // Initialize routing example and location action buttons
-        routingExample = RoutingExample(this, mapView!!)
-        locationActionsContainer = findViewById(R.id.location_actions_container)
-        saveLocationButton = findViewById(R.id.btn_save_location)
-        addDestinationButton = findViewById(R.id.btn_add_destination)
-        addWaypointButton = findViewById(R.id.btn_add_waypoint)
+            place.geoCoordinates?.let { coordinates ->
+                handleLocationSelection(coordinates, place.title)
+                addSearchMarker(coordinates, place.title)
+                moveMapToLocation(coordinates)
 
-        setupLocationActionButtons()
-    }
+                // Clear search state and hide overlay immediately after selection
+                clearSearchState()
+                hideSearchOverlay()
 
-    private fun setupLocationActionButtons() {
-        saveLocationButton.setOnClickListener {
-            selectedOrigin?.let { coordinates ->
-                Log.d(TAG, "Location saved: ${coordinates.latitude}, ${coordinates.longitude}")
-                Toast.makeText(this, "Location saved to log", Toast.LENGTH_SHORT).show()
+                // Show place details after clearing search
+                showPlaceDetails(place)
             }
         }
 
-        addDestinationButton.setOnClickListener {
-            // Switch to destination selection mode
-            isSelectingOrigin = false
-            isSelectingDestination = true
-            isSelectingWaypoint = false
-
-            // Show search box again for destination
-            searchAutoComplete.hint = "Search for destination..."
-            searchAutoComplete.text.clear()
-            locationActionsContainer.visibility = View.GONE
-
-            Log.d(TAG, "Switched to destination selection mode")
+        searchManager.onSearchError = { errorMessage ->
+            runOnUiThread {
+                Toast.makeText(this, errorMessage, Toast.LENGTH_SHORT).show()
+            }
         }
 
-        addWaypointButton.setOnClickListener {
-            // Switch to waypoint selection mode
-            isSelectingOrigin = false
-            isSelectingDestination = false
-            isSelectingWaypoint = true
+        searchManager.onSuggestionsUpdated = { suggestionTitles ->
+            runOnUiThread {
+                searchManager.showDropdown(searchAutoComplete)
+            }
+        }
 
-            // Show search box again for waypoint
-            searchAutoComplete.hint = "Search for waypoint..."
-            searchAutoComplete.text.clear()
-            locationActionsContainer.visibility = View.GONE
-
-            Log.d(TAG, "Switched to waypoint selection mode")
+        searchManager.onTextSearchRequested = { query ->
+            val centerCoordinates = mapView?.camera?.state?.targetCoordinates
+            centerCoordinates?.let {
+                searchManager.executeTextSearch(query, it)
+            }
         }
     }
+    private fun clearSearchState() {
+        // Clear search text and dismiss dropdown
+        searchManager.isUserInput = false // Prevent triggering text change listeners
+        searchAutoComplete.setText("")
+        searchManager.isUserInput = true
 
-    private fun initializeSearchEngine() {
-        try {
-            searchEngine = SearchEngine()
-        } catch (e: InstantiationErrorException) {
-            throw RuntimeException("Initialization of SearchEngine failed: " + e.error.name)
-        }
+        searchAutoComplete.dismissDropDown()
+        searchManager.clearSuggestions()
+
+        // Hide clear button
+        clearSearchButton.visibility = View.GONE
+
+        Log.d(TAG, "Search state cleared")
     }
 
     private fun setupSearchFunctionality() {
-        // Initialize suggestions adapter
-        suggestionsAdapter = ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, arrayListOf<String>())
-        searchAutoComplete.setAdapter(suggestionsAdapter)
-        searchAutoComplete.threshold = 1
-
-        // SOLUTION 1: Override focus change behavior to keep suggestions visible
-        searchAutoComplete.setOnFocusChangeListener { view, hasFocus ->
-            if (hasFocus && searchAutoComplete.text.isNotEmpty() && suggestionsAdapter.count > 0) {
-                // Show dropdown when focused and there are suggestions
-                searchAutoComplete.showDropDown()
-            }
-            // Don't automatically dismiss when losing focus - let user control this
-        }
-
-        // SOLUTION 2: Add click listener to keep dropdown visible when clicking on the field
-        searchAutoComplete.setOnClickListener {
-            if (searchAutoComplete.text.isNotEmpty() && suggestionsAdapter.count > 0) {
-                searchAutoComplete.showDropDown()
-            }
-        }
+        // Setup SearchManager with AutoCompleteTextView
+        searchManager.setupAutoCompleteTextView(searchAutoComplete)
 
         // Setup text change listener for auto-suggestions
         searchAutoComplete.addTextChangedListener(object : TextWatcher {
@@ -228,15 +219,15 @@ class ManageRoute : AppCompatActivity() {
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
                 val query = s?.toString()?.trim() ?: ""
 
-                if (isUserInput) {
+                if (searchManager.isUserInput) {
                     if (query.isNotEmpty()) {
                         Log.d(TAG, "Performing auto-suggest for: $query")
-                        performAutoSuggest(query)
+                        val centerCoordinates = mapView?.camera?.state?.targetCoordinates
+                        centerCoordinates?.let {
+                            searchManager.performAutoSuggest(query, it)
+                        }
                     } else if (query.isEmpty()) {
-                        // SOLUTION 3: Only clear and hide when search box is actually empty
-                        suggestions.clear()
-                        suggestionsAdapter.clear()
-                        suggestionsAdapter.notifyDataSetChanged()
+                        searchManager.clearSuggestions()
                         searchAutoComplete.dismissDropDown()
                         Log.d(TAG, "Search box empty - suggestions cleared and dropdown dismissed")
                     }
@@ -248,104 +239,274 @@ class ManageRoute : AppCompatActivity() {
             override fun afterTextChanged(s: Editable?) {}
         })
 
-        // Handle item selection from suggestions
-        searchAutoComplete.setOnItemClickListener { parent, view, position, id ->
-            Log.d(TAG, "Suggestion item clicked at position: $position")
-
-            isUserInput = false
-
-            if (position < suggestions.size) {
-                val selectedSuggestion = suggestions[position]
-                val suggestionTitle = selectedSuggestion.title
-
-                Log.d(TAG, "Selected suggestion: $suggestionTitle")
-
-                searchAutoComplete.setText(suggestionTitle)
-                clearSearchMarkers()
-
-                // Handle location selection based on current mode
-                selectedSuggestion.place?.let { place ->
-                    place.geoCoordinates?.let { coordinates ->
-                        Log.d(TAG, "Moving to place coordinates: $coordinates")
-                        handleLocationSelection(coordinates, place.title)
-                        addSearchMarker(coordinates, place.title)
-                        flyTo(coordinates)
-                    }
-                } ?: run {
-                    Log.d(TAG, "No place in suggestion, performing text search")
-                    performTextSearch(suggestionTitle)
-                }
-
-                // SOLUTION 4: Only clear suggestions after successful selection
-                suggestions.clear()
-                suggestionsAdapter.clear()
-                suggestionsAdapter.notifyDataSetChanged()
-                searchAutoComplete.dismissDropDown()
-                Log.d(TAG, "Item selected - suggestions cleared and dropdown dismissed")
-            } else {
-                Log.w(TAG, "Invalid suggestion position: $position, suggestions size: ${suggestions.size}")
-            }
-
-            isUserInput = true
-        }
-
-        // SOLUTION 5: Modified search action to keep suggestions visible after hiding keyboard
-        searchAutoComplete.setOnEditorActionListener { textView, actionId, event ->
-            if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH) {
-                val query = searchAutoComplete.text.toString().trim()
-                Log.d(TAG, "Search action triggered with query: $query")
-
-                // Hide keyboard
-                val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
-                imm.hideSoftInputFromWindow(searchAutoComplete.windowToken, 0)
-
-                // IMPORTANT: Show dropdown again after hiding keyboard if we have suggestions
-                searchAutoComplete.post {
-                    if (suggestionsAdapter.count > 0) {
-                        searchAutoComplete.showDropDown()
-                        Log.d(TAG, "Dropdown reshown after hiding keyboard")
-                    }
-                }
-
-                Log.d(TAG, "Search button pressed - keyboard hidden but suggestions kept visible")
-                true
-            } else {
-                false
+        // Focus listener for search box
+        searchAutoComplete.setOnFocusChangeListener { _, hasFocus ->
+            if (hasFocus) {
+                showSearchOverlay()
             }
         }
 
-        // Clear search functionality - keep existing logic
+        // Updated clear search functionality - only clears search, doesn't reset entire state
         clearSearchButton.setOnClickListener {
             Log.d(TAG, "Clear search button clicked")
-            searchAutoComplete.text.clear()
-            clearSearchMarkers()
-            suggestions.clear()
-            suggestionsAdapter.clear()
-            suggestionsAdapter.notifyDataSetChanged()
-            searchAutoComplete.dismissDropDown()
+            clearSearchState()
 
-            // Reset to origin selection mode
-            isSelectingOrigin = true
-            isSelectingDestination = false
-            isSelectingWaypoint = false
-            searchAutoComplete.hint = "Search for origin location..."
-            locationActionsContainer.visibility = View.GONE
+            // Only clear search markers if we're in search mode (not selected place mode)
+            if (placeDetailsContainer.visibility != View.VISIBLE) {
+                clearSearchMarkers()
+            }
 
-            // Reset routing state
-            routingExample.clearRouteData()
-            selectedOrigin = null
-            selectedDestination = null
-
-            // Reset button visibility
-            addDestinationButton.visibility = View.VISIBLE
-            addWaypointButton.visibility = View.GONE
-
-            Log.d(TAG, "Search cleared and state reset")
+            Log.d(TAG, "Search cleared")
         }
     }
 
+    private fun initializeViews() {
+        mapView = findViewById(R.id.map_view)
+        mapStyleFab = findViewById(R.id.fab_map_style)
+        searchAutoComplete = findViewById(R.id.search_autocomplete)
+        clearSearchButton = findViewById(R.id.clear_search)
+        myLocationFab = findViewById(R.id.fab_my_location)
+
+        // Bottom container views
+        bottomContainer = findViewById(R.id.bottom_container)
+        searchContainer = findViewById(R.id.search_container)
+        searchOverlay = findViewById(R.id.search_overlay)
+        searchHintText = findViewById(R.id.search_hint_text)
+        backSearchButton = findViewById(R.id.back_search_button)
+        placeDetailsContainer = findViewById(R.id.place_details_container)
+        routeSummaryContainer = findViewById(R.id.route_summary_container)
+        routeActionsContainer = findViewById(R.id.route_actions_container)
+
+        // Place details views
+        tvPlaceTitle = findViewById(R.id.tv_place_title)
+        tvPlaceAddress = findViewById(R.id.tv_place_address)
+        tvPlaceType = findViewById(R.id.tv_place_type)
+
+        // Route summary views
+        tvRouteDistance = findViewById(R.id.tv_route_distance)
+        tvRouteDuration = findViewById(R.id.tv_route_duration)
+        btnStartNavigation = findViewById(R.id.btn_start_navigation)
+
+        // Initialize routing example and location action buttons
+        routingExample = RoutingExample(this, mapView!!)
+        locationActionsContainer = findViewById(R.id.location_actions_container)
+        saveLocationButton = findViewById(R.id.btn_save_location)
+        addDestinationButton = findViewById(R.id.btn_add_destination)
+        addWaypointButton = findViewById(R.id.btn_add_waypoint)
+        saveRouteButton = findViewById(R.id.btn_save_route)
+        clearRouteButton = findViewById(R.id.btn_clear_route)
+
+        setupLocationActionButtons()
+        setupSearchOverlay()
+    }
+
+    private fun setupSearchOverlay() {
+        // Click on compact search bar to open full screen search
+        searchContainer.setOnClickListener {
+            showSearchOverlay()
+        }
+
+        // Back button in search overlay
+        backSearchButton.setOnClickListener {
+            hideSearchOverlay()
+        }
+    }
+
+    private fun showSearchOverlay() {
+        searchOverlay.visibility = View.VISIBLE
+        searchAutoComplete.requestFocus()
+
+        // Show keyboard
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+        imm.showSoftInput(searchAutoComplete, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+    }
+
+    private fun hideSearchOverlay() {
+        searchOverlay.visibility = View.GONE
+        searchAutoComplete.clearFocus()
+
+        // Ensure dropdown is dismissed
+        searchAutoComplete.dismissDropDown()
+        searchManager.clearSuggestions()
+
+        // Hide keyboard
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+        imm.hideSoftInputFromWindow(searchAutoComplete.windowToken, 0)
+    }
+    @SuppressLint("SetTextI18n")
+    private fun setupLocationActionButtons() {
+        saveLocationButton.setOnClickListener {
+            currentSelectedPlace?.let { place ->
+                Log.d(TAG, "Location saved: ${place.title} - ${place.address}")
+                Toast.makeText(this, "Location '${place.title}' saved to log", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        addDestinationButton.setOnClickListener {
+            // Switch to destination selection mode
+            isSelectingOrigin = false
+            isSelectingDestination = true
+            isSelectingWaypoint = false
+
+            // Clear current search state and reset for new search
+            clearSearchState()
+
+            // Update search hint and show search overlay with fresh state
+            searchAutoComplete.hint = "Search for destination..."
+            searchHintText.text = "Search for destination..."
+
+            // Switch back to search mode
+            showSearchHideDetails()
+
+            Log.d(TAG, "Switched to destination selection mode")
+        }
+
+        addWaypointButton.setOnClickListener {
+            // Switch to waypoint selection mode
+            isSelectingOrigin = false
+            isSelectingDestination = false
+            isSelectingWaypoint = true
+
+            // Clear current search state and reset for new search
+            clearSearchState()
+
+            // Update search hint and show search overlay with fresh state
+            searchAutoComplete.hint = "Search for waypoint..."
+            searchHintText.text = "Search for waypoint..."
+
+            // Switch back to search mode
+            showSearchHideDetails()
+
+            Log.d(TAG, "Switched to waypoint selection mode")
+        }
+
+        saveRouteButton.setOnClickListener {
+            // Log the complete route
+            Log.d(TAG, "Route saved with origin: $selectedOrigin, destination: $selectedDestination")
+            Toast.makeText(this, "Route saved to log", Toast.LENGTH_SHORT).show()
+        }
+
+        clearRouteButton.setOnClickListener {
+            resetToInitialState()
+        }
+
+        btnStartNavigation.setOnClickListener {
+            Toast.makeText(this, "Starting navigation...", Toast.LENGTH_SHORT).show()
+            // Here you would typically start navigation
+        }
+    }
+
+    private fun showPlaceDetails(place: Place) {
+        // Update place information
+        tvPlaceTitle.text = place.title
+        tvPlaceAddress.text = place.address.addressText
+
+        // Show place type if available
+        place.areaType?.let { areaType ->
+            tvPlaceType.text = areaType.toString()
+            tvPlaceType.visibility = View.VISIBLE
+        } ?: run {
+            tvPlaceType.visibility = View.GONE
+        }
+
+        // Show place details container and hide search container
+        placeDetailsContainer.visibility = View.VISIBLE
+        searchContainer.visibility = View.GONE
+
+        // Show appropriate action buttons based on selection mode
+        updateActionButtonsVisibility()
+    }
+
+    private fun updateActionButtonsVisibility() {
+        when {
+            isSelectingOrigin -> {
+                locationActionsContainer.visibility = View.VISIBLE
+                routeActionsContainer.visibility = View.GONE
+                routeSummaryContainer.visibility = View.GONE
+
+                addDestinationButton.visibility = View.VISIBLE
+                addWaypointButton.visibility = View.GONE
+            }
+
+            isSelectingDestination -> {
+                locationActionsContainer.visibility = View.VISIBLE
+                routeActionsContainer.visibility = View.VISIBLE
+                routeSummaryContainer.visibility = View.GONE
+
+                addDestinationButton.visibility = View.GONE
+                addWaypointButton.visibility = View.VISIBLE
+
+                // Show route summary if we have both origin and destination
+                if (selectedOrigin != null && selectedDestination != null) {
+                    showRouteSummary()
+                }
+            }
+
+            isSelectingWaypoint -> {
+                locationActionsContainer.visibility = View.VISIBLE
+                routeActionsContainer.visibility = View.VISIBLE
+                routeSummaryContainer.visibility = View.VISIBLE
+            }
+        }
+    }
+
+    private fun showRouteSummary() {
+        // This would typically get actual route data from your routing engine
+        tvRouteDistance.text = "2.5 km"  // Replace with actual distance
+        tvRouteDuration.text = "8 mins"  // Replace with actual duration
+        routeSummaryContainer.visibility = View.VISIBLE
+    }
+
+    private fun showSearchHideDetails() {
+        searchContainer.visibility = View.VISIBLE
+        placeDetailsContainer.visibility = View.GONE
+        routeSummaryContainer.visibility = View.GONE
+        showSearchOverlay()
+
+        // Focus on search box for immediate typing
+        searchAutoComplete.requestFocus()
+    }
 
 
+    private fun resetToInitialState() {
+        // Reset selection state
+        isSelectingOrigin = true
+        isSelectingDestination = false
+        isSelectingWaypoint = false
+
+        // Clear selections
+        selectedOrigin = null
+        selectedDestination = null
+        currentSelectedPlace = null
+
+        // Clear search state
+        clearSearchState()
+
+        // Reset UI hints
+        searchAutoComplete.hint = "Search for origin location..."
+        searchHintText.text = "Search for origin location..."
+
+        // Reset visibility
+        searchContainer.visibility = View.VISIBLE
+        placeDetailsContainer.visibility = View.GONE
+        routeSummaryContainer.visibility = View.GONE
+        routeActionsContainer.visibility = View.GONE
+        hideSearchOverlay()
+
+        // Clear routing data and markers
+        routingExample.clearRouteData()
+        clearSearchMarkers()
+
+        Log.d(TAG, "Reset to initial state completed")
+    }
+
+    private fun initializeSearchEngine() {
+        try {
+            searchEngine = SearchEngine()
+        } catch (e: InstantiationErrorException) {
+            throw RuntimeException("Initialization of SearchEngine failed: " + e.error.name)
+        }
+    }
 
     private fun setupMyLocationButton() {
         myLocationFab.setOnClickListener {
@@ -363,159 +524,15 @@ class ManageRoute : AppCompatActivity() {
                 coarseLocationPermission == PackageManager.PERMISSION_GRANTED) {
                 getLocation { coordinates ->
                     coordinates?.let {
+                        clearSearchMarkers()
                         moveMapToLocation(it)
-                        // Optionally show location indicator
                         showLocationIndicatorPedestrian(it)
                     }
                 }
             } else {
-                // Request permissions or show message
                 Toast.makeText(this, "Location permission is required", Toast.LENGTH_SHORT).show()
             }
         }
-    }
-
-    private fun performAutoSuggest(query: String) {
-        val centerCoordinates = mapView?.camera?.state?.targetCoordinates ?: return
-
-        val searchOptions = SearchOptions().apply {
-            languageCode = com.here.sdk.core.LanguageCode.EN_US
-            maxItems = 10
-        }
-
-        val textQuery = TextQuery(query, TextQuery.Area(centerCoordinates))
-
-        searchEngine.suggestByText(textQuery, searchOptions, object : SuggestCallback {
-            override fun onSuggestCompleted(searchError: SearchError?, list: List<Suggestion>?) {
-                if (searchError != null) {
-                    Log.d(TAG, "Autosuggest Error: ${searchError.name}")
-                    runOnUiThread {
-                        suggestions.clear()
-                        suggestionsAdapter.clear()
-                        suggestionsAdapter.notifyDataSetChanged()
-                        // Only dismiss if there are actually no suggestions
-                        if (suggestionsAdapter.count == 0) {
-                            searchAutoComplete.dismissDropDown()
-                            Log.d(TAG, "No suggestions due to error - dropdown dismissed")
-                        }
-                    }
-                    return
-                }
-
-                list?.let { suggestionList ->
-                    Log.d(TAG, "Received ${suggestionList.size} suggestions for query: $query")
-
-                    suggestions.clear()
-                    suggestions.addAll(suggestionList)
-
-                    val suggestionTitles = suggestionList.mapNotNull { suggestion ->
-                        val title = suggestion.title
-                        val place = suggestion.place
-
-                        when {
-                            place != null -> {
-                                val address = place.address.addressText
-                                if (address.isNotEmpty() && address != title) {
-                                    "$title - $address"
-                                } else {
-                                    title
-                                }
-                            }
-                            title.isNotEmpty() -> title
-                            else -> null
-                        }
-                    }.filter { it.isNotEmpty() }
-
-                    runOnUiThread {
-                        suggestionsAdapter.clear()
-                        if (suggestionTitles.isNotEmpty()) {
-                            suggestionsAdapter.addAll(suggestionTitles)
-                            Log.d(TAG, "Added ${suggestionTitles.size} suggestion titles to adapter")
-
-                            // SOLUTION 7: Always show dropdown when we have valid suggestions
-                            // regardless of focus state
-                            searchAutoComplete.showDropDown()
-                            Log.d(TAG, "Dropdown shown with suggestions")
-                        } else {
-                            Log.d(TAG, "No valid suggestion titles found")
-                            searchAutoComplete.dismissDropDown()
-                            Log.d(TAG, "No valid suggestions - dropdown dismissed")
-                        }
-                        suggestionsAdapter.notifyDataSetChanged()
-                    }
-                } ?: run {
-                    Log.d(TAG, "Suggestion list is null")
-                    runOnUiThread {
-                        suggestions.clear()
-                        suggestionsAdapter.clear()
-                        suggestionsAdapter.notifyDataSetChanged()
-                        searchAutoComplete.dismissDropDown()
-                        Log.d(TAG, "Null suggestion list - dropdown dismissed")
-                    }
-                }
-            }
-        })
-    }
-
-
-    private fun performTextSearch(query: String) {
-        Log.d(TAG, "Performing text search for: $query")
-
-        val centerCoordinates = mapView?.camera?.state?.targetCoordinates
-        if (centerCoordinates == null) {
-            Log.e(TAG, "Cannot perform search: map center coordinates are null")
-            return
-        }
-
-        val searchOptions = SearchOptions().apply {
-            languageCode = com.here.sdk.core.LanguageCode.EN_US
-            maxItems = 20
-        }
-
-        val textQuery = TextQuery(query, TextQuery.Area(centerCoordinates))
-
-        searchEngine.searchByText(textQuery, searchOptions, object : SearchCallback {
-            override fun onSearchCompleted(searchError: SearchError?, list: List<Place>?) {
-                if (searchError != null) {
-                    Log.e(TAG, "Search Error: ${searchError.name}")
-                    runOnUiThread {
-                        Toast.makeText(this@ManageRoute, "Search failed: ${searchError.name}", Toast.LENGTH_SHORT).show()
-                    }
-                    return
-                }
-
-                list?.let { places ->
-                    Log.d(TAG, "Search completed with ${places.size} results")
-
-                    runOnUiThread {
-                        clearSearchMarkers()
-
-                        if (places.isNotEmpty()) {
-                            val firstPlace = places[0]
-                            Log.d(TAG, "First search result: ${firstPlace.toString()} at ${firstPlace.geoCoordinates}")
-                            firstPlace.geoCoordinates?.let { coordinates ->
-                                // Handle location selection based on current mode
-                                handleLocationSelection(coordinates, firstPlace.title)
-
-                                // Add marker and move camera
-                                addSearchMarker(coordinates, firstPlace.title)
-                                flyTo(coordinates)
-                            }
-
-                            Toast.makeText(this@ManageRoute, "Location selected", Toast.LENGTH_SHORT).show()
-                        } else {
-                            Log.d(TAG, "No search results found")
-                            Toast.makeText(this@ManageRoute, "No results found for '$query'", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                } ?: run {
-                    Log.e(TAG, "Search results list is null")
-                    runOnUiThread {
-                        Toast.makeText(this@ManageRoute, "Search failed: No results", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
-        })
     }
 
     private fun handleLocationSelection(coordinates: GeoCoordinates, title: String) {
@@ -523,37 +540,21 @@ class ManageRoute : AppCompatActivity() {
             isSelectingOrigin -> {
                 selectedOrigin = coordinates
                 routingExample.setOrigin(coordinates)
-
-                // Hide search box and show action buttons
-                locationActionsContainer.visibility = View.VISIBLE
-                addWaypointButton.visibility = View.GONE // Hide waypoint button initially
-
                 Log.d(TAG, "Origin selected: $title at ${coordinates.latitude}, ${coordinates.longitude}")
             }
 
             isSelectingDestination -> {
                 selectedDestination = coordinates
                 routingExample.setDestination(coordinates)
-
-                // Show waypoint button and hide destination button
-                addDestinationButton.visibility = View.GONE
-                addWaypointButton.visibility = View.VISIBLE
-                locationActionsContainer.visibility = View.VISIBLE
-
                 Log.d(TAG, "Destination selected: $title at ${coordinates.latitude}, ${coordinates.longitude}")
             }
 
             isSelectingWaypoint -> {
                 routingExample.addWaypoint(coordinates)
-                locationActionsContainer.visibility = View.VISIBLE
-
                 Log.d(TAG, "Waypoint added: $title at ${coordinates.latitude}, ${coordinates.longitude}")
             }
         }
     }
-
-
-
 
     private fun addSearchMarker(coordinates: GeoCoordinates, title: String) {
         try {
@@ -585,24 +586,21 @@ class ManageRoute : AppCompatActivity() {
     private fun flyTo(geoCoordinates: GeoCoordinates) {
         val geoCoordinatesUpdate = GeoCoordinatesUpdate(geoCoordinates)
         val bowFactor = 1.0
-        val animation =  MapCameraAnimationFactory.flyTo(geoCoordinatesUpdate, bowFactor, Duration.ofSeconds(3))
+        val animation = MapCameraAnimationFactory.flyTo(geoCoordinatesUpdate, bowFactor, Duration.ofSeconds(3))
         mapView?.camera?.startAnimation(animation)
     }
 
     private fun setupMapStyleButton() {
         // Set initial scheme based on time
         currentSchemeIndex = getTimeBasedSchemeIndex()
-        updateButtonText()
 
-        mapStyleButton.setOnClickListener {
+        mapStyleFab.setOnClickListener {
             currentSchemeIndex = (currentSchemeIndex + 1) % mapSchemes.size
-            updateButtonText()
             changeMapScheme(mapSchemes[currentSchemeIndex])
-        }
-    }
 
-    private fun updateButtonText() {
-        mapStyleButton.text = mapSchemeNames[currentSchemeIndex]
+            // Show toast with current map style
+            Toast.makeText(this, mapSchemeNames[currentSchemeIndex], Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun getTimeBasedSchemeIndex(): Int {

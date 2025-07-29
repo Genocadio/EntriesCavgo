@@ -9,4 +9,33 @@
     <color name="material_dynamic_secondary90">#FFF8E1</color>
     <color name="material_dynamic_secondary40">#FFA000</color>
     <color name="material_dynamic_secondary30">#FF8F00</color>
+    <!-- Primary colors -->
+    <color name="primary_color">#2196F3</color>
+    <color name="primary_dark">#1976D2</color>
+    <color name="primary_light">#BBDEFB</color>
+
+    <!-- Secondary colors -->
+    <color name="secondary_color">#FF9800</color>
+    <color name="secondary_dark">#F57C00</color>
+    <color name="secondary_light">#FFE0B2</color>
+
+    <!-- Accent colors -->
+    <color name="accent_color">#4CAF50</color>
+    <color name="accent_dark">#388E3C</color>
+    <color name="accent_light">#C8E6C9</color>
+
+    <!-- Background colors -->
+    <color name="route_summary_background">#F5F5F5</color>
+    <color name="bottom_container_background">#FFFFFF</color>
+
+    <!-- Text colors -->
+    <color name="text_primary">#212121</color>
+    <color name="text_secondary">#757575</color>
+    <color name="text_hint">#9E9E9E</color>
+
+    <!-- Other colors -->
+    <color name="divider">#BDBDBD</color>
+    <color name="error">#F44336</color>
+    <color name="success">#4CAF50</color>
+    <color name="warning">#FF9800</color>
 </resources>
