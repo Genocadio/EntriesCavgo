@@ -1,6 +1,7 @@
 package com.gocavgo.entries.hereroutes
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.AlertDialog
 import android.content.Context
 import android.content.pm.PackageManager
@@ -113,6 +114,7 @@ class MapController(
         }
     }
 
+    @SuppressLint("SetTextI18n")
     private fun createMoveStatusText() {
         moveStatusText = android.widget.TextView(context).apply {
             text = "Long press on map to place marker at new location"
@@ -324,6 +326,7 @@ class MapController(
         Log.d(TAG, "Marker removed: $markerTitle")
     }
 
+    @SuppressLint("SetTextI18n")
     fun startMarkerMove(marker: MapMarker) {
         isMovingMarker = true
         markerToMove = marker
@@ -407,5 +410,4 @@ class MapController(
         Log.d(TAG, "Marker move cancelled")
     }
 
-    fun isInMoveMode(): Boolean = isMovingMarker
 }

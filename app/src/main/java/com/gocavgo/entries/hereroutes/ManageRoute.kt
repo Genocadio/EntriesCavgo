@@ -28,6 +28,7 @@ import com.here.sdk.mapview.MapView
 import com.here.sdk.search.Place
 import com.here.sdk.search.SearchEngine
 import androidx.core.view.isVisible
+import kotlin.math.abs
 
 class ManageRoute : AppCompatActivity() {
 
@@ -58,8 +59,6 @@ class ManageRoute : AppCompatActivity() {
     // Route summary views
     private lateinit var tvRouteDistance: TextView
     private lateinit var tvRouteDuration: TextView
-    private lateinit var btnStartNavigation: Button
-
     // Components
     private lateinit var routingExample: RoutingExample
     private lateinit var searchManager: SearchManager
@@ -86,6 +85,11 @@ class ManageRoute : AppCompatActivity() {
     private var originPlace: Place? = null
     private var destinationPlace: Place? = null
     private var waypointPlaces: MutableList<Place> = mutableListOf()
+    private lateinit var btnExpandRoute: ImageButton
+    private lateinit var routeDetailsContainer: LinearLayout
+    private lateinit var routeStopsContainer: LinearLayout
+    private lateinit var btnClearLocation: Button
+    private lateinit var btnAddWaypointRoute: Button
 
     // Available map schemes
     private val mapSchemes = listOf(
@@ -104,7 +108,6 @@ class ManageRoute : AppCompatActivity() {
         "Hybrid Night"
     )
 
-    private var currentSchemeIndex = 0
 
     @RequiresPermission(allOf = [Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION])
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -164,7 +167,6 @@ class ManageRoute : AppCompatActivity() {
         // Route summary views
         tvRouteDistance = findViewById(R.id.tv_route_distance)
         tvRouteDuration = findViewById(R.id.tv_route_duration)
-        btnStartNavigation = findViewById(R.id.btn_start_navigation)
 
         // Location action buttons
         locationActionsContainer = findViewById(R.id.location_actions_container)
@@ -173,6 +175,12 @@ class ManageRoute : AppCompatActivity() {
         addWaypointButton = findViewById(R.id.btn_add_waypoint)
         saveRouteButton = findViewById(R.id.btn_save_route)
         clearRouteButton = findViewById(R.id.btn_clear_route)
+
+        btnExpandRoute = findViewById(R.id.btn_expand_route)
+        routeDetailsContainer = findViewById(R.id.route_details_container)
+        routeStopsContainer = findViewById(R.id.route_stops_container)
+        btnClearLocation = findViewById(R.id.btn_clear_location)
+        btnAddWaypointRoute = findViewById(R.id.btn_add_waypoint_route)
     }
 
     private fun initializeComponents() {
@@ -195,8 +203,7 @@ class ManageRoute : AppCompatActivity() {
             tvPlaceAddress,
             tvPlaceType,
             tvRouteDistance,
-            tvRouteDuration,
-            btnStartNavigation
+            tvRouteDuration
         )
 
         mapController = MapController(
@@ -310,8 +317,14 @@ class ManageRoute : AppCompatActivity() {
         }
 
         uiController.onRouteDataRequest = {
-            Pair(selectedOrigin != null && selectedDestination != null,
-                routeSummaryContainer.isVisible)
+            val hasRoute = selectedOrigin != null && selectedDestination != null
+            val isRouteSummaryVisible = routeSummaryContainer.isVisible
+            Pair(hasRoute, isRouteSummaryVisible)
+        }
+
+        // NEW: Provide route stops data to UIController
+        uiController.onRouteStopsDataRequest = {
+            Triple(originPlace, destinationPlace, waypointPlaces.toList())
         }
 
         // NEW: Handle auto-suggest requests (not direct search)
@@ -320,6 +333,23 @@ class ManageRoute : AppCompatActivity() {
             centerCoordinates?.let {
                 searchManager.performAutoSuggest(query, it)  // Only perform auto-suggest, not search
             }
+        }
+
+        // Setup additional button listeners
+        setupAdditionalButtons()
+    }
+
+    private fun setupAdditionalButtons() {
+        btnClearLocation.setOnClickListener {
+            resetToInitialState()
+        }
+
+        btnAddWaypointRoute.setOnClickListener {
+            isSelectingOrigin = false
+            isSelectingDestination = false
+            isSelectingWaypoint = true
+            uiController.switchToWaypointSelection()
+            Log.d(TAG, "Switched to waypoint selection mode from route")
         }
     }
 
@@ -393,8 +423,8 @@ class ManageRoute : AppCompatActivity() {
         when (markerType) {
             "search_result" -> {
                 if (selectedOrigin != null &&
-                    Math.abs(currentMarkerCoords.latitude - selectedOrigin!!.latitude) < 0.0001 &&
-                    Math.abs(currentMarkerCoords.longitude - selectedOrigin!!.longitude) < 0.0001) {
+                    abs(currentMarkerCoords.latitude - selectedOrigin!!.latitude) < 0.0001 &&
+                    abs(currentMarkerCoords.longitude - selectedOrigin!!.longitude) < 0.0001) {
 
                     selectedOrigin = newCoordinates
                     // Update origin place coordinates if it exists
@@ -408,8 +438,8 @@ class ManageRoute : AppCompatActivity() {
                     Log.d(TAG, "Updated origin coordinates and triggered route recalculation")
                 }
                 else if (selectedDestination != null &&
-                    Math.abs(currentMarkerCoords.latitude - selectedDestination!!.latitude) < 0.0001 &&
-                    Math.abs(currentMarkerCoords.longitude - selectedDestination!!.longitude) < 0.0001) {
+                    abs(currentMarkerCoords.latitude - selectedDestination!!.latitude) < 0.0001 &&
+                    abs(currentMarkerCoords.longitude - selectedDestination!!.longitude) < 0.0001) {
 
                     selectedDestination = newCoordinates
                     // Update destination place coordinates if it exists
@@ -462,35 +492,49 @@ class ManageRoute : AppCompatActivity() {
 
     // NEW: Helper method to log complete route details
     private fun logRouteDetails() {
-        Log.d(TAG, "=== ROUTE DETAILS ===")
+        Log.d(TAG, "=== ENHANCED ROUTE DETAILS ===")
 
         originPlace?.let { place ->
             Log.d(TAG, "Origin: ${place.title}")
-            Log.d(TAG, "  Address: ${place.address}")
+            Log.d(TAG, "  Address: ${place.address.addressText}")
             Log.d(TAG, "  Type: ${place.placeType}")
+            Log.d(TAG, "  Area Type: ${place.areaType}")
             Log.d(TAG, "  Coordinates: ${place.geoCoordinates?.latitude}, ${place.geoCoordinates?.longitude}")
+            place.distanceInMeters?.let { distance ->
+                Log.d(TAG, "  Distance from search: ${distance}m")
+            }
         } ?: Log.d(TAG, "Origin: Not set")
-
-        destinationPlace?.let { place ->
-            Log.d(TAG, "Destination: ${place.title}")
-            Log.d(TAG, "  Address: ${place.address}")
-            Log.d(TAG, "  Type: ${place.placeType}")
-            Log.d(TAG, "  Coordinates: ${place.geoCoordinates?.latitude}, ${place.geoCoordinates?.longitude}")
-        } ?: Log.d(TAG, "Destination: Not set")
 
         if (waypointPlaces.isNotEmpty()) {
             Log.d(TAG, "Waypoints (${waypointPlaces.size}):")
             waypointPlaces.forEachIndexed { index, place ->
                 Log.d(TAG, "  ${index + 1}. ${place.title}")
-                Log.d(TAG, "     Address: ${place.address}")
+                Log.d(TAG, "     Address: ${place.address.addressText}")
                 Log.d(TAG, "     Type: ${place.placeType}")
+                Log.d(TAG, "     Area Type: ${place.areaType}")
                 Log.d(TAG, "     Coordinates: ${place.geoCoordinates?.latitude}, ${place.geoCoordinates?.longitude}")
+                place.distanceInMeters?.let { distance ->
+                    Log.d(TAG, "     Distance from search: ${distance}m")
+                }
             }
         } else {
             Log.d(TAG, "Waypoints: None")
         }
 
-        Log.d(TAG, "==================")
+        destinationPlace?.let { place ->
+            Log.d(TAG, "Destination: ${place.title}")
+            Log.d(TAG, "  Address: ${place.address.addressText}")
+            Log.d(TAG, "  Type: ${place.placeType}")
+            Log.d(TAG, "  Area Type: ${place.areaType}")
+            Log.d(TAG, "  Coordinates: ${place.geoCoordinates?.latitude}, ${place.geoCoordinates?.longitude}")
+            place.distanceInMeters?.let { distance ->
+                Log.d(TAG, "  Distance from search: ${distance}m")
+            }
+        } ?: Log.d(TAG, "Destination: Not set")
+
+
+
+        Log.d(TAG, "================================")
     }
 
     @RequiresPermission(allOf = [Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION])
