@@ -14,9 +14,11 @@ import android.widget.ImageView
 import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.view.ViewGroup
+import android.widget.ScrollView
 import com.gocavgo.entries.R
 import com.here.sdk.search.Place
 import com.here.sdk.routing.Route
+
 class UIController(
     private val context: Context,
     private val searchContainer: LinearLayout,
@@ -35,20 +37,32 @@ class UIController(
     private val tvRouteDistance: TextView,
     private val tvRouteDuration: TextView,
 ) {
-    private val TAG = UIController::class.java.simpleName
+    private val logTag = UIController::class.java.simpleName
+
+    // UPDATED: Use DbPlace objects instead of Place objects
+    var onRouteStopsDbDataRequest: (() -> Triple<DbPlace?, DbPlace?, List<DbPlace>>)? = null
+    private var currentOriginDbPlace: DbPlace? = null
+    private var currentDestinationDbPlace: DbPlace? = null
+    private var currentWaypointDbPlaces: List<DbPlace> = emptyList()
 
     // Route summary views
     private lateinit var routeExpandCollapseButton: ImageButton
-    private lateinit var routeDetailsContainer: LinearLayout
+
+    private lateinit var routeDetailsContainer: ScrollView
+
     private lateinit var routeStopsContainer: LinearLayout
     private lateinit var tvRouteOriginDestination: TextView
     private lateinit var tvWaypointCount: TextView
     private var isRouteSummaryExpanded = false
+    private lateinit var routeConfigurationContainer: LinearLayout
+    private lateinit var etRouteName: com.google.android.material.textfield.TextInputEditText
+    private lateinit var etRoutePrice: com.google.android.material.textfield.TextInputEditText
+    private lateinit var cbCityRoute: android.widget.CheckBox
+    private lateinit var waypointPricesContainer: LinearLayout
+    private lateinit var waypointPriceInputsContainer: LinearLayout
+    private val waypointPriceInputs = mutableListOf<com.google.android.material.textfield.TextInputEditText>()
 
-    // Route data for detailed view
-    private var currentOriginPlace: Place? = null
-    private var currentDestinationPlace: Place? = null
-    private var currentWaypointPlaces: List<Place> = emptyList()
+    // REMOVED: Old Place objects - we now use DbPlace exclusively
     private var currentRoute: Route? = null
 
     // Callbacks
@@ -56,13 +70,17 @@ class UIController(
     var onSelectionStateRequest: (() -> Triple<Boolean, Boolean, Boolean>)? = null
     var onRouteDataRequest: (() -> Pair<Boolean, Boolean>)? = null
     var onAutoSuggestRequested: ((String) -> Unit)? = null
-    var onRouteStopsDataRequest: (() -> Triple<Place?, Place?, List<Place>>)? = null
+
+    // REMOVED: Old Place callback - replaced with DbPlace callback
+    // var onRouteStopsDataRequest: (() -> Triple<Place?, Place?, List<Place>>)? = null
 
     init {
         setupSearchOverlay()
         setupLocationActionButtons()
         setupEnhancedRouteSummary()
     }
+
+    var onFinalRouteValidationRequested: (() -> FinalRoute?)? = null
 
     private fun setupEnhancedRouteSummary() {
         // Find or create the route summary views
@@ -78,11 +96,50 @@ class UIController(
         // Create route summary text views
         tvRouteOriginDestination = createRouteSummaryTextView()
         tvWaypointCount = createWaypointCountTextView()
+        setupRouteConfiguration()
 
         routeExpandCollapseButton.setOnClickListener {
             toggleRouteSummarySize()
         }
     }
+
+    private fun setupRouteConfiguration() {
+        // Find the inner LinearLayout inside the NestedScrollView
+        val innerContainer = routeDetailsContainer.getChildAt(0) as? LinearLayout
+
+        routeConfigurationContainer = innerContainer?.findViewById(R.id.route_configuration_container)
+            ?: createRouteConfigurationContainer()
+
+        etRouteName = routeConfigurationContainer.findViewById(R.id.et_route_name)
+        etRoutePrice = routeConfigurationContainer.findViewById(R.id.et_route_price)
+        cbCityRoute = routeConfigurationContainer.findViewById(R.id.cb_city_route)
+        waypointPricesContainer = routeConfigurationContainer.findViewById(R.id.waypoint_prices_container)
+        waypointPriceInputsContainer = routeConfigurationContainer.findViewById(R.id.waypoint_price_inputs_container)
+    }
+
+    private fun createRouteConfigurationContainer(): LinearLayout {
+        val container = LinearLayout(context).apply {
+            id = R.id.route_configuration_container
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+            setPadding(20, 20, 20, 20)
+        }
+
+        // Add to the inner LinearLayout of the NestedScrollView
+        val innerContainer = routeDetailsContainer.getChildAt(0) as? LinearLayout
+        if (innerContainer != null && innerContainer.childCount > 0) {
+            innerContainer.addView(container, 1) // Add after header
+        } else {
+            innerContainer?.addView(container)
+        }
+
+        return container
+    }
+
+
 
     @SuppressLint("UseCompatLoadingForDrawables")
     private fun createExpandCollapseButton(): ImageButton {
@@ -103,20 +160,32 @@ class UIController(
         return button
     }
 
-    private fun createRouteDetailsContainer(): LinearLayout {
-        val container = LinearLayout(context).apply {
+    private fun createRouteDetailsContainer(): ScrollView {
+        val container = ScrollView(context).apply {
             id = R.id.route_details_container
-            orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             )
             visibility = View.GONE
+            isFillViewport = true
+            scrollBarStyle = View.SCROLLBARS_OUTSIDE_OVERLAY
         }
 
+        // Create the inner LinearLayout for content
+        val innerContainer = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        container.addView(innerContainer)
         routeSummaryContainer.addView(container)
         return container
     }
+
 
     private fun createRouteStopsContainer(): LinearLayout {
         val container = LinearLayout(context).apply {
@@ -128,7 +197,10 @@ class UIController(
             )
         }
 
-        routeDetailsContainer.addView(container)
+        // Find the inner LinearLayout inside the NestedScrollView
+        val innerContainer = (routeDetailsContainer.getChildAt(0) as? LinearLayout)
+        innerContainer?.addView(container)
+
         return container
     }
 
@@ -169,12 +241,12 @@ class UIController(
 
                 if (searchManager.isUserInput) {
                     if (query.isNotEmpty()) {
-                        Log.d(TAG, "Performing auto-suggest for: $query")
+                        Log.d(logTag, "Performing auto-suggest for: $query")
                         onAutoSuggestRequested?.invoke(query)
                     } else if (query.isEmpty()) {
                         searchManager.clearSuggestions()
                         searchAutoComplete.dismissDropDown()
-                        Log.d(TAG, "Search box empty - suggestions cleared and dropdown dismissed")
+                        Log.d(logTag, "Search box empty - suggestions cleared and dropdown dismissed")
                     }
                 }
 
@@ -191,9 +263,9 @@ class UIController(
         }
 
         clearSearchButton.setOnClickListener {
-            Log.d(TAG, "Clear search button clicked")
+            Log.d(logTag, "Clear search button clicked")
             clearSearchState()
-            Log.d(TAG, "Search cleared")
+            Log.d(logTag, "Search cleared")
         }
     }
 
@@ -233,7 +305,6 @@ class UIController(
         clearRouteButton?.setOnClickListener {
             onLocationActionRequested?.invoke("clear_route")
         }
-
     }
 
     private fun toggleRouteSummarySize() {
@@ -248,12 +319,36 @@ class UIController(
             routeDetailsContainer.visibility = View.GONE
             isRouteSummaryExpanded = false
         } else {
-            // Expand to 70% of screen
-            animateRouteSummaryHeight((screenHeight * 0.7f).toInt())
+            // Expand to 80% of screen for better scrolling space
+            val expandedHeight = (screenHeight * 0.80f).toInt()
+            animateRouteSummaryHeight(expandedHeight)
             routeExpandCollapseButton.setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
             routeDetailsContainer.visibility = View.VISIBLE
             updateDetailedRouteView()
             isRouteSummaryExpanded = true
+
+            // Scroll to top of the route details after expansion
+            routeDetailsContainer.post {
+                routeDetailsContainer.scrollTo(0, 0)
+            }
+        }
+    }
+
+    private fun scrollToRouteSection(section: String) {
+        routeDetailsContainer.post {
+            when (section) {
+                "configuration" -> {
+                    val configurationY = routeConfigurationContainer.top
+                    routeDetailsContainer.smoothScrollTo(0, configurationY)
+                }
+                "stops" -> {
+                    val stopsY = routeStopsContainer.top
+                    routeDetailsContainer.smoothScrollTo(0, stopsY)
+                }
+                "top" -> {
+                    routeDetailsContainer.smoothScrollTo(0, 0)
+                }
+            }
         }
     }
 
@@ -272,41 +367,159 @@ class UIController(
         animator.start()
     }
 
+    // UPDATED: Use DbPlace data exclusively
     private fun updateDetailedRouteView() {
-        val routeData = onRouteStopsDataRequest?.invoke()
-        routeData?.let { (origin, destination, waypoints) ->
-            currentOriginPlace = origin
-            currentDestinationPlace = destination
-            currentWaypointPlaces = waypoints
+        val routeData = onRouteStopsDbDataRequest?.invoke()
+        routeData?.let { (originDb, destinationDb, waypointsDb) ->
+            currentOriginDbPlace = originDb
+            currentDestinationDbPlace = destinationDb
+            currentWaypointDbPlaces = waypointsDb
 
-            populateRouteStopsContainer()
+            populateRouteStopsContainerFromDbPlaces()
+            updateWaypointPriceInputs(waypointsDb) // Add this line
         }
     }
 
-    private fun populateRouteStopsContainer() {
+    private fun updateWaypointPriceInputs(waypoints: List<DbPlace>) {
+        // Clear existing inputs
+        waypointPriceInputsContainer.removeAllViews()
+        waypointPriceInputs.clear()
+
+        if (waypoints.isEmpty()) {
+            waypointPricesContainer.visibility = View.GONE
+            return
+        }
+
+        waypointPricesContainer.visibility = View.VISIBLE
+
+        waypoints.forEachIndexed { index, dbPlace ->
+            val inputLayout = com.google.android.material.textfield.TextInputLayout(
+                context, null, com.google.android.material.R.attr.textInputOutlinedStyle
+            ).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    bottomMargin = 16
+                }
+                hint = "Price for ${dbPlace.getName()}"
+            }
+
+            val editText = com.google.android.material.textfield.TextInputEditText(context).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+                inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+                maxLines = 1
+            }
+
+            inputLayout.addView(editText)
+            waypointPriceInputsContainer.addView(inputLayout)
+            waypointPriceInputs.add(editText)
+        }
+    }
+
+    fun validateAndCreateFinalRoute(): FinalRoute? {
+        // Validate required fields
+        val routePriceText = etRoutePrice.text?.toString()?.trim()
+        if (routePriceText.isNullOrEmpty()) {
+            android.widget.Toast.makeText(context, "Route price is required", android.widget.Toast.LENGTH_SHORT).show()
+            return null
+        }
+
+        val routePrice = routePriceText.toDoubleOrNull()
+        if (routePrice == null || routePrice < 0) {
+            android.widget.Toast.makeText(context, "Please enter a valid route price", android.widget.Toast.LENGTH_SHORT).show()
+            return null
+        }
+
+        // Validate waypoint prices if waypoints exist
+        val waypointPrices = mutableListOf<Double>()
+        waypointPriceInputs.forEachIndexed { index, editText ->
+            val priceText = editText.text?.toString()?.trim()
+            if (priceText.isNullOrEmpty()) {
+                val waypointName = currentWaypointDbPlaces.getOrNull(index)?.getName() ?: "Waypoint ${index + 1}"
+                android.widget.Toast.makeText(context, "Price for $waypointName is required", android.widget.Toast.LENGTH_SHORT).show()
+                return null
+            }
+
+            val price = priceText.toDoubleOrNull()
+            if (price == null || price < 0) {
+                val waypointName = currentWaypointDbPlaces.getOrNull(index)?.getName() ?: "Waypoint ${index + 1}"
+                android.widget.Toast.makeText(context, "Please enter a valid price for $waypointName", android.widget.Toast.LENGTH_SHORT).show()
+                return null
+            }
+
+            waypointPrices.add(price)
+        }
+
+        // Get required route data
+        val origin = currentOriginDbPlace
+        val destination = currentDestinationDbPlace
+        val route = currentRoute
+
+        if (origin == null || destination == null || route == null) {
+            android.widget.Toast.makeText(context, "Route data is incomplete", android.widget.Toast.LENGTH_SHORT).show()
+            return null
+        }
+
+        // Create waypoints with prices
+        val waypointsWithPrices = currentWaypointDbPlaces.mapIndexed { index, dbPlace ->
+            WaypointWithPrice(dbPlace, waypointPrices.getOrElse(index) { 0.0 })
+        }
+
+        // Get optional fields
+        val routeName = etRouteName.text?.toString()?.trim()?.takeIf { it.isNotEmpty() }
+        val isCityRoute = cbCityRoute.isChecked
+
+        // Format distance and duration from current route
+        val distanceText = if (route.lengthInMeters >= 1000) {
+            String.format("%.1f km", route.lengthInMeters / 1000.0)
+        } else {
+            "${route.lengthInMeters} m"
+        }
+
+        val durationText = formatDuration(route.duration.seconds)
+
+        return FinalRoute(
+            origin = origin,
+            destination = destination,
+            routePrice = routePrice,
+            routeName = routeName,
+            isCityRoute = isCityRoute,
+            distance = distanceText,
+            duration = durationText,
+            waypoints = waypointsWithPrices
+        )
+    }
+
+    // UPDATED: This is now the primary method for populating route stops
+    private fun populateRouteStopsContainerFromDbPlaces() {
         routeStopsContainer.removeAllViews()
 
         // Add origin
-        currentOriginPlace?.let { place ->
-            addRouteStopView(place, "Origin", android.R.drawable.ic_menu_mylocation)
+        currentOriginDbPlace?.let { dbPlace ->
+            addRouteStopViewFromDbPlace(dbPlace, "Origin", android.R.drawable.ic_menu_mylocation)
         }
 
         // Add waypoints
-        currentWaypointPlaces.forEachIndexed { index, place ->
+        currentWaypointDbPlaces.forEachIndexed { index, dbPlace ->
             addConnectorLine()
-            addRouteStopView(place, "Waypoint ${index + 1}", android.R.drawable.ic_menu_add)
+            addRouteStopViewFromDbPlace(dbPlace, "Waypoint ${index + 1}", android.R.drawable.ic_menu_add)
         }
 
         // Add destination
-        if (currentDestinationPlace != null) {
+        if (currentDestinationDbPlace != null) {
             addConnectorLine()
-            currentDestinationPlace?.let { place ->
-                addRouteStopView(place, "Destination", android.R.drawable.ic_menu_directions)
+            currentDestinationDbPlace?.let { dbPlace ->
+                addRouteStopViewFromDbPlace(dbPlace, "Destination", android.R.drawable.ic_menu_directions)
             }
         }
     }
 
-    private fun addRouteStopView(place: Place, type: String, iconResource: Int) {
+    // UPDATED: Enhanced to show custom names and districts from DbPlace
+    private fun addRouteStopViewFromDbPlace(dbPlace: DbPlace, type: String, iconResource: Int) {
         val stopView = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(
@@ -335,18 +548,23 @@ class UIController(
             )
         }
 
-        // Place name
+        // UPDATED: Use DbPlace.getName() for custom names
         val nameText = TextView(context).apply {
-            text = place.title
+            text = dbPlace.getName() // This will show custom name if set, otherwise original name
             textSize = 16f
             setTextColor(context.getColor(android.R.color.black))
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
         }
 
-        // Type label
+        // UPDATED: Enhanced type label with district from DbPlace
         val typeText = TextView(context).apply {
-            text = type
+            val typeWithDistrict = if (dbPlace.displayDistrict != null) {
+                "$type • ${dbPlace.displayDistrict}"
+            } else {
+                type
+            }
+            text = typeWithDistrict
             textSize = 12f
             setTextColor(context.getColor(android.R.color.darker_gray))
         }
@@ -359,6 +577,10 @@ class UIController(
 
         routeStopsContainer.addView(stopView)
     }
+
+    // REMOVED: Old populateRouteStopsContainer method - replaced with DbPlace version
+
+    // REMOVED: Old addRouteStopView method - replaced with DbPlace version
 
     private fun addConnectorLine() {
         val connector = LinearLayout(context).apply {
@@ -403,15 +625,28 @@ class UIController(
         searchAutoComplete.setText("")
         searchAutoComplete.dismissDropDown()
         clearSearchButton.visibility = View.GONE
-        Log.d(TAG, "Search state cleared")
+        Log.d(logTag, "Search state cleared")
     }
 
-    fun showPlaceDetails(place: Place) {
-        tvPlaceTitle.text = place.title
-        tvPlaceAddress.text = place.address.addressText
+    // UPDATED: Enhanced to use DbPlace.getName() for place details
+    fun showPlaceDetails(place: Place, dbPlace: DbPlace? = null) {
+        val displayPlace = dbPlace ?: DbPlace.fromPlace(place)
 
-        place.areaType?.let { areaType ->
-            tvPlaceType.text = areaType.toString()
+        // UPDATED: Use DbPlace.getName() to show custom names in place details
+        tvPlaceTitle.text = displayPlace.getName() // Will show custom name if set
+        tvPlaceAddress.text = displayPlace.address
+
+        // UPDATED: Show district information if available
+        val typeWithDistrict = displayPlace.areaType?.let { areaType ->
+            if (displayPlace.displayDistrict != null) {
+                "$areaType • ${displayPlace.displayDistrict}"
+            } else {
+                areaType
+            }
+        }
+
+        typeWithDistrict?.let { typeText ->
+            tvPlaceType.text = typeText
             tvPlaceType.visibility = View.VISIBLE
         } ?: run {
             tvPlaceType.visibility = View.GONE
@@ -441,7 +676,7 @@ class UIController(
             }
 
             isSelectingDestination -> {
-                // FIXED: Hide place details when destination is selected and route is created
+                // Hide place details when destination is selected and route is created
                 placeDetailsContainer.visibility = View.GONE
                 locationActionsContainer.visibility = View.GONE
                 routeActionsContainer.visibility = View.VISIBLE
@@ -453,7 +688,7 @@ class UIController(
             }
 
             isSelectingWaypoint -> {
-                // FIXED: Hide place details when adding waypoints
+                // Hide place details when adding waypoints
                 placeDetailsContainer.visibility = View.GONE
                 locationActionsContainer.visibility = View.GONE
                 routeActionsContainer.visibility = View.VISIBLE
@@ -465,10 +700,10 @@ class UIController(
     private fun showRouteSummary() {
         val routeData = onRouteDataRequest?.invoke()
         if (routeData?.first == true) {
-            // FIXED: Set initial height to 10% of screen and ensure it stays minimized
+            // Set initial height to 15% of screen for better visibility
             val displayMetrics = context.resources.displayMetrics
             val screenHeight = displayMetrics.heightPixels
-            val minimalHeight = (screenHeight * 0.10f).toInt()
+            val minimalHeight = (screenHeight * 0.15f).toInt()
 
             val layoutParams = routeSummaryContainer.layoutParams
             layoutParams.height = minimalHeight
@@ -480,6 +715,22 @@ class UIController(
             isRouteSummaryExpanded = false
             routeDetailsContainer.visibility = View.GONE
             routeExpandCollapseButton.setImageResource(android.R.drawable.ic_menu_more)
+        }
+    }
+
+    fun handleKeyboardVisibility(isVisible: Boolean) {
+        if (isVisible && isRouteSummaryExpanded) {
+            // When keyboard is visible, ensure the focused input is scrolled into view
+            routeDetailsContainer.post {
+                val focusedView = routeDetailsContainer.findFocus()
+                focusedView?.let { view ->
+                    routeDetailsContainer.requestChildRectangleOnScreen(
+                        view,
+                        android.graphics.Rect(0, 0, view.width, view.height),
+                        true
+                    )
+                }
+            }
         }
     }
 
@@ -502,29 +753,30 @@ class UIController(
             tvRouteDistance.text = distanceText
             tvRouteDuration.text = durationText
 
-            // Update route summary text
+            // UPDATED: Update route summary text using DbPlace names
             updateRouteSummaryText()
 
-            // FIXED: Show route summary with proper minimal height
+            // Show route summary with proper minimal height
             showRouteSummary()
 
-            Log.d(TAG, "Route summary updated: $distanceText, $durationText")
+            Log.d(logTag, "Route summary updated: $distanceText, $durationText")
         }
     }
 
+    // UPDATED: Use DbPlace.getName() for route summary text
     @SuppressLint("SetTextI18n")
     private fun updateRouteSummaryText() {
-        val routeData = onRouteStopsDataRequest?.invoke()
-        routeData?.let { (origin, destination, waypoints) ->
+        val routeData = onRouteStopsDbDataRequest?.invoke()
+        routeData?.let { (originDb, destinationDb, waypointsDb) ->
 
-            // Update origin → destination text
-            val originName = origin?.title ?: "Unknown"
-            val destinationName = destination?.title ?: "Unknown"
+            // UPDATED: Use DbPlace.getName() to show custom names in route summary
+            val originName = originDb?.getName() ?: "Unknown"
+            val destinationName = destinationDb?.getName() ?: "Unknown"
             tvRouteOriginDestination.text = "$originName → $destinationName"
 
             // Update waypoint count
-            if (waypoints.isNotEmpty()) {
-                tvWaypointCount.text = "${waypoints.size} waypoint${if (waypoints.size > 1) "s" else ""}"
+            if (waypointsDb.isNotEmpty()) {
+                tvWaypointCount.text = "${waypointsDb.size} waypoint${if (waypointsDb.size > 1) "s" else ""}"
                 tvWaypointCount.visibility = View.VISIBLE
             } else {
                 tvWaypointCount.visibility = View.GONE
@@ -597,11 +849,24 @@ class UIController(
         // Reset route summary state
         isRouteSummaryExpanded = false
         routeDetailsContainer.visibility = View.GONE
-        currentOriginPlace = null
-        currentDestinationPlace = null
-        currentWaypointPlaces = emptyList()
-        currentRoute = null
+        routeDetailsContainer.scrollTo(0, 0) // Reset scroll position
 
-        Log.d(TAG, "UI reset to initial state")
+        // Reset layout params
+        val layoutParams = routeSummaryContainer.layoutParams
+        layoutParams.height = ViewGroup.LayoutParams.WRAP_CONTENT
+        routeSummaryContainer.layoutParams = layoutParams
+
+        currentOriginDbPlace = null
+        currentDestinationDbPlace = null
+        currentWaypointDbPlaces = emptyList()
+        currentRoute = null
+        etRouteName.setText("")
+        etRoutePrice.setText("")
+        cbCityRoute.isChecked = false
+        waypointPricesContainer.visibility = View.GONE
+        waypointPriceInputsContainer.removeAllViews()
+        waypointPriceInputs.clear()
+
+        Log.d(logTag, "UI reset to initial state")
     }
 }
