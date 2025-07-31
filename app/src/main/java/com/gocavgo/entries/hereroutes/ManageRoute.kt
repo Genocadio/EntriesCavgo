@@ -254,14 +254,24 @@ class ManageRoute : AppCompatActivity() {
 
             place.geoCoordinates?.let { coordinates ->
                 handleLocationSelection(coordinates, place.title, place)
-                mapController.addSearchMarker(coordinates, place.title)
+
+                // Create DbPlace and determine marker type
+                val dbPlace = DbPlace.fromPlace(place)
+                val markerType = when {
+                    isSelectingOrigin -> "origin"
+                    isSelectingDestination -> "destination"
+                    isSelectingWaypoint -> "waypoint"
+                    else -> "waypoint" // default
+                }
+
+                // Use the enhanced addSearchMarker method with DbPlace and marker type
+                mapController.addSearchMarker(coordinates, dbPlace, markerType)
                 mapController.moveMapToLocation(coordinates)
 
                 uiController.clearSearchState()
                 uiController.hideSearchOverlay()
 
-                // Create DbPlace and pass it to showPlaceDetails
-                val dbPlace = DbPlace.fromPlace(place)
+                // Show place details using DbPlace
                 uiController.showPlaceDetails(place, dbPlace)
             }
         }
@@ -394,7 +404,10 @@ class ManageRoute : AppCompatActivity() {
 
         mapController.onMarkerActionRequested = { action, marker ->
             when (action) {
-                "remove" -> mapController.removeMarker(marker)
+                "remove" ->{
+                    handleMarkerDeletion(marker)
+                    mapController.removeMarker(marker)
+                }
                 "move" -> mapController.startMarkerMove(marker)
                 "edit" -> handleMarkerEdit(marker)
                 "save" -> mapController.saveMarker(marker)
@@ -422,6 +435,107 @@ class ManageRoute : AppCompatActivity() {
                 Log.d(TAG, it.toLogString())
             }
         }
+    }
+
+    private fun handleMarkerDeletion(marker: MapMarker) {
+        val metadata = marker.metadata
+        val markerType = metadata?.getString("marker_type")
+        val markerCoords = marker.coordinates
+
+        when (markerType) {
+            "search_result" -> {
+                // Find which DbPlace this marker represents
+                val dbPlaceToDelete = findDbPlaceForMarker(markerCoords)
+                val markerName = dbPlaceToDelete?.getName() ?: "marker"
+
+                Log.d(TAG, "Attempting to delete marker: $markerName at $markerCoords")
+
+                var deletionMessage = ""
+
+                // Check if this is the origin marker
+                if (selectedOrigin != null &&
+                    abs(markerCoords.latitude - selectedOrigin!!.latitude) < 0.0001 &&
+                    abs(markerCoords.longitude - selectedOrigin!!.longitude) < 0.0001) {
+
+                    Log.d(TAG, "Deleting origin marker: $markerName")
+                    selectedOrigin = null
+                    originPlace = null
+                    originDbPlace = null
+
+                    // Clear the entire route since origin is removed
+                    routingExample.clearRouteAfterOriginDeletion()
+                    deletionMessage = "Origin '$markerName' deleted - route cleared"
+                }
+                // Check if this is the destination marker
+                else if (selectedDestination != null &&
+                    abs(markerCoords.latitude - selectedDestination!!.latitude) < 0.0001 &&
+                    abs(markerCoords.longitude - selectedDestination!!.longitude) < 0.0001) {
+
+                    Log.d(TAG, "Deleting destination marker: $markerName")
+                    selectedDestination = null
+                    destinationPlace = null
+                    destinationDbPlace = null
+
+                    // Clear the entire route since destination is removed
+                    routingExample.clearRouteAfterDestinationDeletion()
+                    deletionMessage = "Destination '$markerName' deleted - route cleared"
+                }
+                // Check if this is a waypoint marker
+                else {
+                    val waypointIndex = findWaypointIndexByCoordinates(markerCoords)
+                    if (waypointIndex >= 0) {
+                        Log.d(TAG, "Deleting waypoint marker at index $waypointIndex: $markerName")
+
+                        // Remove from all waypoint collections
+                        if (waypointIndex < waypointPlaces.size) {
+                            waypointPlaces.removeAt(waypointIndex)
+                        }
+                        if (waypointIndex < waypointDbPlaces.size) {
+                            waypointDbPlaces.removeAt(waypointIndex)
+                        }
+
+                        // Remove waypoint and recalculate route if origin and destination exist
+                        routingExample.removeWaypointAndRecalculate(waypointIndex)
+                        deletionMessage = "Waypoint '$markerName' deleted - route recalculated"
+                    } else {
+                        Log.w(TAG, "Could not find waypoint to delete at coordinates: $markerCoords")
+                        deletionMessage = "Marker '$markerName' deleted"
+                    }
+                }
+
+                Toast.makeText(this, deletionMessage, Toast.LENGTH_LONG).show()
+                Log.d(TAG, "Marker deletion completed: $deletionMessage")
+            }
+            else -> {
+                Log.w(TAG, "Attempted to delete marker with unknown type: $markerType")
+                Toast.makeText(this, "Marker deleted", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun findWaypointIndexByCoordinates(coordinates: GeoCoordinates): Int {
+        val tolerance = 0.0001
+
+        // First check RoutingExample's waypoints (most reliable)
+        val routingWaypointIndex = routingExample.findWaypointIndex(coordinates)
+        if (routingWaypointIndex >= 0) {
+            Log.d(TAG, "Found waypoint at index $routingWaypointIndex using RoutingExample")
+            return routingWaypointIndex
+        }
+
+        // Fallback: check our local waypoint collections
+        waypointDbPlaces.forEachIndexed { index, dbPlace ->
+            dbPlace.geoCoordinates?.let { dbCoords ->
+                if (abs(coordinates.latitude - dbCoords.latitude) < tolerance &&
+                    abs(coordinates.longitude - dbCoords.longitude) < tolerance) {
+                    Log.d(TAG, "Found waypoint at index $index using DbPlace collection")
+                    return index
+                }
+            }
+        }
+
+        Log.d(TAG, "No waypoint found at coordinates: ${coordinates.latitude}, ${coordinates.longitude}")
+        return -1
     }
 
     private fun handleMarkerEdit(marker: MapMarker) {

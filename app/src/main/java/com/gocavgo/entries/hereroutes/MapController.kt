@@ -5,6 +5,9 @@ import android.annotation.SuppressLint
 import android.app.AlertDialog
 import android.content.Context
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.drawable.VectorDrawable
 import android.util.Log
 import android.widget.Toast
 import androidx.annotation.RequiresPermission
@@ -16,8 +19,10 @@ import com.here.sdk.gestures.GestureState
 import com.here.sdk.gestures.LongPressListener
 import com.here.sdk.gestures.TapListener
 import com.here.sdk.mapview.*
+import java.io.ByteArrayOutputStream
 import java.util.*
 import kotlin.collections.ArrayList
+import androidx.core.graphics.createBitmap
 
 class MapController(
     private val context: Context,
@@ -42,6 +47,9 @@ class MapController(
     var onLocationReceived: ((GeoCoordinates) -> Unit)? = null
     var onMarkerActionRequested: ((String, MapMarker) -> Unit)? = null
     var onMarkerMoved: ((MapMarker, GeoCoordinates) -> Unit)? = null
+
+    // Cache for converted marker images to avoid repeated conversions
+    private val markerImageCache = mutableMapOf<Int, MapImage>()
 
     init {
         setupMapStyleButton()
@@ -141,6 +149,50 @@ class MapController(
         }
     }
 
+    /**
+     * Convert vector drawable to MapImage with proper scaling for different screen densities
+     */
+    private fun createMapImageFromVectorDrawable(drawableRes: Int, sizeInDp: Int = 32): MapImage {
+        // Check cache first
+        markerImageCache[drawableRes]?.let { return it }
+
+        try {
+            // Get the vector drawable
+            val vectorDrawable = ContextCompat.getDrawable(context, drawableRes) as? VectorDrawable
+                ?: throw IllegalArgumentException("Resource $drawableRes is not a VectorDrawable")
+
+            // Calculate size in pixels based on screen density
+            val density = context.resources.displayMetrics.density
+            val sizeInPixels = (sizeInDp * density).toInt()
+
+            // Create a bitmap from the vector drawable
+            val bitmap = createBitmap(sizeInPixels, sizeInPixels)
+
+            val canvas = Canvas(bitmap)
+            vectorDrawable.setBounds(0, 0, sizeInPixels, sizeInPixels)
+            vectorDrawable.draw(canvas)
+
+            // Convert bitmap to byte array
+            val stream = ByteArrayOutputStream()
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
+            val byteArray = stream.toByteArray()
+
+            // Create MapImage from byte array
+            val mapImage = MapImage(byteArray, ImageFormat.PNG)
+
+            // Cache the result
+            markerImageCache[drawableRes] = mapImage
+
+            Log.d(TAG, "Created MapImage from vector drawable $drawableRes with size ${sizeInPixels}px (${sizeInDp}dp)")
+            return mapImage
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to create MapImage from vector drawable $drawableRes: ${e.message}")
+            // Fallback to system drawable
+            return MapImageFactory.fromResource(context.resources, android.R.drawable.ic_menu_mylocation)
+        }
+    }
+
     fun loadMapScene(geoCoordinates: GeoCoordinates) {
         val mapScheme = getTimeBasedMapScheme()
         mapView.mapScene.loadScene(mapScheme) { mapError ->
@@ -181,22 +233,65 @@ class MapController(
         }
     }
 
-    fun addSearchMarker(coordinates: GeoCoordinates, title: String) {
+    /**
+     * Enhanced addSearchMarker method with marker type support and vector drawable conversion
+     * @param coordinates Location coordinates
+     * @param dbPlace DbPlace object containing place information
+     * @param markerType Type of marker: "origin", "destination", "waypoint"
+     */
+    fun addSearchMarker(coordinates: GeoCoordinates, dbPlace: DbPlace, markerType: String = "waypoint") {
         try {
-            val mapImage = MapImageFactory.fromResource(context.resources, android.R.drawable.ic_menu_mylocation)
+            // Select appropriate marker image based on type
+            val markerDrawableRes = when (markerType.lowercase()) {
+                "origin" -> R.drawable.ic_map_marker_red
+                "destination" -> R.drawable.ic_flag_marker_red
+                "waypoint" -> R.drawable.ic_map_marker_blue
+                else -> R.drawable.ic_map_marker_blue // Default to blue for unknown types
+            }
+
+            // Create MapImage from vector drawable with proper scaling
+            val mapImage = createMapImageFromVectorDrawable(markerDrawableRes, 32) // 32dp size
             val mapMarker = MapMarker(coordinates, mapImage, Anchor2D(0.5, 1.0))
 
+            // Use DbPlace.getName() for the marker title
+            val markerTitle = dbPlace.getName()
+
             val metadata = Metadata()
-            metadata.setString("marker_title", title)
+            metadata.setString("marker_title", markerTitle)
             metadata.setString("marker_type", "search_result")
+            metadata.setString("location_type", markerType) // Store the location type
             mapMarker.metadata = metadata
 
             mapView.mapScene.addMapMarker(mapMarker)
             searchMarkers.add(mapMarker)
 
-            Log.d(TAG, "Successfully added search marker: '$title' at $coordinates")
+            Log.d(TAG, "Successfully added $markerType marker: '$markerTitle' at $coordinates")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to add search marker: ${e.message}")
+        }
+    }
+
+    /**
+     * Legacy method for backward compatibility - now uses DbPlace and vector drawable conversion
+     */
+    fun addSearchMarker(coordinates: GeoCoordinates, title: String) {
+        try {
+            // Create MapImage from vector drawable with proper scaling
+            val mapImage = createMapImageFromVectorDrawable(R.drawable.ic_map_marker_blue, 32)
+            val mapMarker = MapMarker(coordinates, mapImage, Anchor2D(0.5, 1.0))
+
+            val metadata = Metadata()
+            metadata.setString("marker_title", title)
+            metadata.setString("marker_type", "search_result")
+            metadata.setString("location_type", "waypoint") // Default to waypoint
+            mapMarker.metadata = metadata
+
+            mapView.mapScene.addMapMarker(mapMarker)
+            searchMarkers.add(mapMarker)
+
+            Log.d(TAG, "Successfully added legacy marker: '$title' at $coordinates")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to add legacy search marker: ${e.message}")
         }
     }
 
@@ -295,11 +390,12 @@ class MapController(
     private fun showMarkerContextMenu(marker: MapMarker) {
         val metadata = marker.metadata
         val markerTitle = metadata?.getString("marker_title") ?: "Unknown Location"
+        val locationType = metadata?.getString("location_type") ?: "waypoint"
 
         val options = arrayOf("Remove", "Move", "Edit", "Save")
 
         AlertDialog.Builder(context)
-            .setTitle("Marker: $markerTitle")
+            .setTitle("$locationType: $markerTitle")
             .setItems(options) { dialog, which ->
                 when (which) {
                     0 -> onMarkerActionRequested?.invoke("remove", marker)
@@ -321,9 +417,10 @@ class MapController(
 
         val metadata = marker.metadata
         val markerTitle = metadata?.getString("marker_title") ?: "marker"
+        val locationType = metadata?.getString("location_type") ?: "location"
 
-        Toast.makeText(context, "Removed marker: $markerTitle", Toast.LENGTH_SHORT).show()
-        Log.d(TAG, "Marker removed: $markerTitle")
+        Toast.makeText(context, "Removed $locationType: $markerTitle", Toast.LENGTH_SHORT).show()
+        Log.d(TAG, "Marker removed: $locationType - $markerTitle")
     }
 
     @SuppressLint("SetTextI18n")
@@ -333,12 +430,13 @@ class MapController(
 
         val metadata = marker.metadata
         val markerTitle = metadata?.getString("marker_title") ?: "marker"
+        val locationType = metadata?.getString("location_type") ?: "location"
 
         moveStatusText?.visibility = android.view.View.VISIBLE
-        moveStatusText?.text = "Moving '$markerTitle' - Long press on map to place at new location. Tap 'My Location' button to cancel."
+        moveStatusText?.text = "Moving '$markerTitle' ($locationType) - Long press on map to place at new location. Tap 'My Location' button to cancel."
 
         Toast.makeText(context, "Move mode activated for: $markerTitle", Toast.LENGTH_SHORT).show()
-        Log.d(TAG, "Started moving marker: $markerTitle")
+        Log.d(TAG, "Started moving marker: $locationType - $markerTitle")
     }
 
     fun editMarker(marker: MapMarker) {
@@ -379,16 +477,18 @@ class MapController(
     fun saveMarker(marker: MapMarker) {
         val metadata = marker.metadata
         val markerTitle = metadata?.getString("marker_title") ?: "Unknown Location"
+        val locationType = metadata?.getString("location_type") ?: "location"
         val coordinates = marker.coordinates
 
-        Log.d(TAG, "Saved marker: $markerTitle at ${coordinates.latitude}, ${coordinates.longitude}")
-        Toast.makeText(context, "Saved marker: $markerTitle", Toast.LENGTH_SHORT).show()
+        Log.d(TAG, "Saved marker: $locationType - $markerTitle at ${coordinates.latitude}, ${coordinates.longitude}")
+        Toast.makeText(context, "Saved $locationType: $markerTitle", Toast.LENGTH_SHORT).show()
     }
 
     private fun moveMarkerToLocation(newCoordinates: GeoCoordinates) {
         markerToMove?.let { marker ->
             val metadata = marker.metadata
             val markerTitle = metadata?.getString("marker_title") ?: "marker"
+            val locationType = metadata?.getString("location_type") ?: "location"
             val oldCoordinates = marker.coordinates
 
             // IMPORTANT: Call the callback BEFORE updating marker coordinates
@@ -399,7 +499,7 @@ class MapController(
             marker.coordinates = newCoordinates
             cancelMarkerMove()
 
-            Log.d(TAG, "Marker '$markerTitle' moved from: ${oldCoordinates.latitude}, ${oldCoordinates.longitude} to: ${newCoordinates.latitude}, ${newCoordinates.longitude}")
+            Log.d(TAG, "Marker '$markerTitle' ($locationType) moved from: ${oldCoordinates.latitude}, ${oldCoordinates.longitude} to: ${newCoordinates.latitude}, ${newCoordinates.longitude}")
         }
     }
 
@@ -410,4 +510,11 @@ class MapController(
         Log.d(TAG, "Marker move cancelled")
     }
 
+    /**
+     * Clear the marker image cache if needed (e.g., when changing themes)
+     */
+    fun clearMarkerImageCache() {
+        markerImageCache.clear()
+        Log.d(TAG, "Marker image cache cleared")
+    }
 }

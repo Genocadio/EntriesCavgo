@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/search_overlay"
+    android:layout_width="0dp"
+    android:layout_height="0dp"
+    android:background="@android:color/white"
+    android:elevation="16dp"
+    android:orientation="vertical"
+    android:visibility="gone"
+    app:layout_constraintBottom_toBottomOf="parent"
+    app:layout_constraintEnd_toEndOf="parent"
+    app:layout_constraintStart_toStartOf="parent"
+    app:layout_constraintTop_toTopOf="parent">
+
+    <!-- Search Header -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="40dp"
+        android:layout_margin="16dp"
+        android:background="@drawable/modern_search_background"
+        android:elevation="4dp"
+        android:orientation="horizontal"
+        android:padding="8dp">
+
+        <ImageButton
+            android:id="@+id/back_search_button"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="@drawable/modern_round_button"
+            android:contentDescription="Back"
+            android:src="@android:drawable/ic_menu_revert"
+            app:tint="#1A1A1A" />
+
+        <AutoCompleteTextView
+            android:id="@+id/search_autocomplete"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:background="@android:color/transparent"
+            android:hint="Search for origin location..."
+            android:imeOptions="actionSearch"
+            android:inputType="text"
+            android:padding="16dp"
+            android:textSize="16sp"
+            android:textColor="#1A1A1A"
+            android:textColorHint="#757575"
+            android:fontFamily="sans-serif-medium"
+            android:completionThreshold="1"
+            android:dropDownHeight="wrap_content"
+            android:dropDownWidth="match_parent"
+            android:popupBackground="@android:color/white" />
+
+        <ImageButton
+            android:id="@+id/clear_search"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="@drawable/modern_round_button"
+            android:contentDescription="Clear search"
+            android:src="@android:drawable/ic_menu_close_clear_cancel"
+            android:visibility="gone"
+            app:tint="#757575" />
+
+    </LinearLayout>
+
+    <!-- Search Suggestions Area -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:background="@android:color/white" />
+
+</LinearLayout>

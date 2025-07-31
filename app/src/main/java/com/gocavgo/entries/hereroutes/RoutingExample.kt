@@ -163,9 +163,18 @@ class RoutingExample(private val context: Context, private val mapView: MapView)
     }
 
     // Updated method to calculate route with current origin, destination and waypoints
-    private fun calculateRouteWithWaypoints() {
-        val origin = originCoordinates ?: return
-        val destination = destinationCoordinates ?: return
+    fun calculateRouteWithWaypoints() {
+        val origin = originCoordinates
+        val destination = destinationCoordinates
+
+        if (origin == null || destination == null) {
+            Log.w(TAG, "Cannot calculate route - Origin: $origin, Destination: $destination")
+            clearMap()
+            onRouteCalculated?.invoke(null)
+            return
+        }
+
+        Log.d(TAG, "Calculating route with ${waypointsList.size} waypoints")
 
         val waypoints = arrayListOf<Waypoint>()
         waypoints.add(Waypoint(origin))
@@ -173,10 +182,12 @@ class RoutingExample(private val context: Context, private val mapView: MapView)
         // Add intermediate waypoints
         waypointsList.forEach { coordinates ->
             waypoints.add(Waypoint(coordinates))
+            Log.d(TAG, "Added waypoint: ${coordinates.latitude}, ${coordinates.longitude}")
         }
 
         waypoints.add(Waypoint(destination))
 
+        Log.d(TAG, "Total waypoints for route calculation: ${waypoints.size}")
         calculateRoute(waypoints)
     }
 
@@ -203,6 +214,21 @@ class RoutingExample(private val context: Context, private val mapView: MapView)
         allWaypoints.addAll(waypointsList)
         destinationCoordinates?.let { allWaypoints.add(it) }
         return allWaypoints
+    }
+
+    fun isRouteValid(): Boolean {
+        val isValid = originCoordinates != null && destinationCoordinates != null
+        Log.d(TAG, "Route validity check - Origin: ${originCoordinates != null}, Destination: ${destinationCoordinates != null}, Valid: $isValid")
+        return isValid
+    }
+
+    fun getCurrentRouteState(): String {
+        return """
+        Origin: ${originCoordinates?.let { "${it.latitude}, ${it.longitude}" } ?: "None"}
+        Destination: ${destinationCoordinates?.let { "${it.latitude}, ${it.longitude}" } ?: "None"}
+        Waypoints: ${waypointsList.size}
+        Valid Route: ${isRouteValid()}
+    """.trimIndent()
     }
 
     fun isOrigin(coordinates: GeoCoordinates): Boolean {
@@ -563,6 +589,57 @@ class RoutingExample(private val context: Context, private val mapView: MapView)
     private fun getRandom(min: Double, max: Double): Double {
         return min + Math.random() * (max - min)
     }
+
+    fun removeWaypointAndRecalculate(index: Int) {
+        if (index >= 0 && index < waypointsList.size) {
+            val removed = waypointsList.removeAt(index)
+            Log.d(TAG, "Waypoint removed at index $index: ${removed.latitude}, ${removed.longitude}")
+            Log.d(TAG, "Remaining waypoints: ${waypointsList.size}")
+
+            // Only recalculate if we still have both origin and destination
+            if (originCoordinates != null && destinationCoordinates != null) {
+                Log.d(TAG, "Recalculating route after waypoint removal")
+                calculateRouteWithWaypoints()
+            } else {
+                Log.w(TAG, "Cannot recalculate route - missing origin or destination")
+                clearMap()
+                onRouteCalculated?.invoke(null)
+            }
+        } else {
+            Log.w(TAG, "Cannot remove waypoint: invalid index $index (waypoints count: ${waypointsList.size})")
+        }
+    }
+
+    // Enhanced calculateRouteWithWaypoints method to ensure it works correctly
+
+
+    fun clearRouteAfterOriginDeletion() {
+        originCoordinates = null
+        Log.d(TAG, "Origin deleted - clearing entire route")
+
+        // Clear the visual route from map
+        clearMap()
+
+        // Notify callback that route is cleared
+        onRouteCalculated?.invoke(null)
+
+        Log.d(TAG, "Route cleared after origin deletion")
+    }
+
+    // Method to clear route after destination deletion
+    fun clearRouteAfterDestinationDeletion() {
+        destinationCoordinates = null
+        Log.d(TAG, "Destination deleted - clearing entire route")
+
+        // Clear the visual route from map
+        clearMap()
+
+        // Notify callback that route is cleared
+        onRouteCalculated?.invoke(null)
+
+        Log.d(TAG, "Route cleared after destination deletion")
+    }
+
 
     private fun showDialog(title: String, message: String) {
         val builder: AlertDialog.Builder = AlertDialog.Builder(context)

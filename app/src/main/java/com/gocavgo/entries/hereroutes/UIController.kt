@@ -381,42 +381,95 @@ class UIController(
     }
 
     private fun updateWaypointPriceInputs(waypoints: List<DbPlace>) {
-        // Clear existing inputs
-        waypointPriceInputsContainer.removeAllViews()
-        waypointPriceInputs.clear()
-
         if (waypoints.isEmpty()) {
             waypointPricesContainer.visibility = View.GONE
+            waypointPriceInputsContainer.removeAllViews()
+            waypointPriceInputs.clear()
             return
         }
 
         waypointPricesContainer.visibility = View.VISIBLE
 
-        waypoints.forEachIndexed { index, dbPlace ->
-            val inputLayout = com.google.android.material.textfield.TextInputLayout(
-                context, null, com.google.android.material.R.attr.textInputOutlinedStyle
-            ).apply {
-                layoutParams = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    bottomMargin = 16
+        // Store existing values before clearing
+        val existingValues = waypointPriceInputs.map { it.text?.toString() ?: "" }
+
+        // Calculate how many new inputs we need to add
+        val currentInputCount = waypointPriceInputs.size
+        val requiredInputCount = waypoints.size
+
+        when {
+            requiredInputCount > currentInputCount -> {
+                // Add new inputs for additional waypoints
+                for (index in currentInputCount until requiredInputCount) {
+                    val dbPlace = waypoints[index]
+                    val inputLayout = createWaypointPriceInput(dbPlace, index)
+                    waypointPriceInputsContainer.addView(inputLayout)
                 }
-                hint = "Price for ${dbPlace.getName()}"
             }
-
-            val editText = com.google.android.material.textfield.TextInputEditText(context).apply {
-                layoutParams = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                )
-                inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
-                maxLines = 1
+            requiredInputCount < currentInputCount -> {
+                // Remove excess inputs
+                for (i in currentInputCount - 1 downTo requiredInputCount) {
+                    waypointPriceInputsContainer.removeViewAt(i)
+                    if (i < waypointPriceInputs.size) {
+                        waypointPriceInputs.removeAt(i)
+                    }
+                }
             }
+            // If counts are equal, just update labels if needed
+            else -> {
+                // Update existing input labels to match current waypoints
+                waypoints.forEachIndexed { index, dbPlace ->
+                    if (index < waypointPriceInputs.size) {
+                        val inputLayout = waypointPriceInputsContainer.getChildAt(index) as? com.google.android.material.textfield.TextInputLayout
+                        inputLayout?.hint = "Price for ${dbPlace.getName()}"
+                    }
+                }
+            }
+        }
 
-            inputLayout.addView(editText)
-            waypointPriceInputsContainer.addView(inputLayout)
-            waypointPriceInputs.add(editText)
+        // Restore existing values where possible
+        existingValues.forEachIndexed { index, value ->
+            if (index < waypointPriceInputs.size && value.isNotEmpty()) {
+                waypointPriceInputs[index].setText(value)
+            }
+        }
+    }
+
+    private fun createWaypointPriceInput(dbPlace: DbPlace, index: Int): com.google.android.material.textfield.TextInputLayout {
+        val inputLayout = com.google.android.material.textfield.TextInputLayout(
+            context, null, com.google.android.material.R.attr.textInputOutlinedStyle
+        ).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomMargin = 16
+            }
+            hint = "Price for ${dbPlace.getName()}"
+        }
+
+        val editText = com.google.android.material.textfield.TextInputEditText(context).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+            maxLines = 1
+        }
+
+        inputLayout.addView(editText)
+        waypointPriceInputs.add(editText)
+
+        return inputLayout
+    }
+
+    private fun reorderWaypointPrices(oldIndex: Int, newIndex: Int) {
+        if (oldIndex < waypointPriceInputs.size && newIndex < waypointPriceInputs.size) {
+            val oldValue = waypointPriceInputs[oldIndex].text?.toString() ?: ""
+            val newValue = waypointPriceInputs[newIndex].text?.toString() ?: ""
+
+            waypointPriceInputs[oldIndex].setText(newValue)
+            waypointPriceInputs[newIndex].setText(oldValue)
         }
     }
 
