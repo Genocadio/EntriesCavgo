@@ -18,18 +18,11 @@
         android:paddingBottom="16dp"
         android:gravity="center_vertical">
 
-        <ImageView
-            android:layout_width="28dp"
-            android:layout_height="28dp"
-            android:src="@android:drawable/ic_menu_directions"
-            app:tint="@color/primary_color" />
-
         <TextView
             android:id="@+id/tv_route_origin_destination"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:layout_marginStart="16dp"
             android:textSize="18sp"
             android:textStyle="bold"
             android:textColor="#1A1A1A"
@@ -41,13 +34,15 @@
 
         <ImageButton
             android:id="@+id/btn_expand_route"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
             android:background="@drawable/modern_round_icon_button"
             android:src="@android:drawable/ic_menu_more"
             android:contentDescription="Expand route details"
             app:tint="@color/primary_color"
-            android:elevation="2dp" />
+            android:elevation="1dp"
+            android:scaleType="centerInside"
+            android:padding="4dp" />
 
     </LinearLayout>
 
@@ -59,7 +54,8 @@
         android:orientation="horizontal"
         android:paddingHorizontal="20dp"
         android:paddingBottom="16dp"
-        android:weightSum="3">
+        android:weightSum="3"
+        android:visibility="visible">
 
         <Button
             android:id="@+id/btn_save_route"

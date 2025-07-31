@@ -11,13 +11,13 @@ import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.ImageView
-import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.view.ViewGroup
 import android.widget.ScrollView
 import com.gocavgo.entries.R
 import com.here.sdk.search.Place
 import com.here.sdk.routing.Route
+import androidx.core.view.isNotEmpty
 
 class UIController(
     private val context: Context,
@@ -79,8 +79,7 @@ class UIController(
         setupLocationActionButtons()
         setupEnhancedRouteSummary()
     }
-
-    var onFinalRouteValidationRequested: (() -> FinalRoute?)? = null
+    
 
     private fun setupEnhancedRouteSummary() {
         // Find or create the route summary views
@@ -130,7 +129,7 @@ class UIController(
 
         // Add to the inner LinearLayout of the NestedScrollView
         val innerContainer = routeDetailsContainer.getChildAt(0) as? LinearLayout
-        if (innerContainer != null && innerContainer.childCount > 0) {
+        if (innerContainer != null && innerContainer.isNotEmpty()) {
             innerContainer.addView(container, 1) // Add after header
         } else {
             innerContainer?.addView(container)
@@ -308,24 +307,32 @@ class UIController(
     }
 
     private fun toggleRouteSummarySize() {
-        val displayMetrics = context.resources.displayMetrics
-        val screenHeight = displayMetrics.heightPixels
-
         if (isRouteSummaryExpanded) {
-            // Collapse to minimal size (10% of screen height)
-            val minimalHeight = (screenHeight * 0.10f).toInt()
-            animateRouteSummaryHeight(minimalHeight)
+            // Collapse - just hide the details container, keep buttons visible
             routeExpandCollapseButton.setImageResource(android.R.drawable.ic_menu_more)
             routeDetailsContainer.visibility = View.GONE
             isRouteSummaryExpanded = false
+
+            // Reset container to wrap_content so buttons stay visible
+            val layoutParams = routeSummaryContainer.layoutParams
+            layoutParams.height = ViewGroup.LayoutParams.WRAP_CONTENT
+            routeSummaryContainer.layoutParams = layoutParams
+
         } else {
-            // Expand to 80% of screen for better scrolling space
+            // Expand - show the details container
+            val displayMetrics = context.resources.displayMetrics
+            val screenHeight = displayMetrics.heightPixels
             val expandedHeight = (screenHeight * 0.80f).toInt()
-            animateRouteSummaryHeight(expandedHeight)
+
             routeExpandCollapseButton.setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
             routeDetailsContainer.visibility = View.VISIBLE
             updateDetailedRouteView()
             isRouteSummaryExpanded = true
+
+            // Set fixed height for expanded state
+            val layoutParams = routeSummaryContainer.layoutParams
+            layoutParams.height = expandedHeight
+            routeSummaryContainer.layoutParams = layoutParams
 
             // Scroll to top of the route details after expansion
             routeDetailsContainer.post {
@@ -334,38 +341,6 @@ class UIController(
         }
     }
 
-    private fun scrollToRouteSection(section: String) {
-        routeDetailsContainer.post {
-            when (section) {
-                "configuration" -> {
-                    val configurationY = routeConfigurationContainer.top
-                    routeDetailsContainer.smoothScrollTo(0, configurationY)
-                }
-                "stops" -> {
-                    val stopsY = routeStopsContainer.top
-                    routeDetailsContainer.smoothScrollTo(0, stopsY)
-                }
-                "top" -> {
-                    routeDetailsContainer.smoothScrollTo(0, 0)
-                }
-            }
-        }
-    }
-
-    private fun animateRouteSummaryHeight(targetHeight: Int) {
-        val currentHeight = routeSummaryContainer.height
-        val animator = ValueAnimator.ofInt(currentHeight, targetHeight)
-
-        animator.addUpdateListener { animation ->
-            val animatedValue = animation.animatedValue as Int
-            val layoutParams = routeSummaryContainer.layoutParams
-            layoutParams.height = animatedValue
-            routeSummaryContainer.layoutParams = layoutParams
-        }
-
-        animator.duration = 300
-        animator.start()
-    }
 
     // UPDATED: Use DbPlace data exclusively
     private fun updateDetailedRouteView() {
@@ -463,16 +438,7 @@ class UIController(
         return inputLayout
     }
 
-    private fun reorderWaypointPrices(oldIndex: Int, newIndex: Int) {
-        if (oldIndex < waypointPriceInputs.size && newIndex < waypointPriceInputs.size) {
-            val oldValue = waypointPriceInputs[oldIndex].text?.toString() ?: ""
-            val newValue = waypointPriceInputs[newIndex].text?.toString() ?: ""
-
-            waypointPriceInputs[oldIndex].setText(newValue)
-            waypointPriceInputs[newIndex].setText(oldValue)
-        }
-    }
-
+    @SuppressLint("DefaultLocale")
     fun validateAndCreateFinalRoute(): FinalRoute? {
         // Validate required fields
         val routePriceText = etRoutePrice.text?.toString()?.trim()
@@ -753,13 +719,9 @@ class UIController(
     private fun showRouteSummary() {
         val routeData = onRouteDataRequest?.invoke()
         if (routeData?.first == true) {
-            // Set initial height to 15% of screen for better visibility
-            val displayMetrics = context.resources.displayMetrics
-            val screenHeight = displayMetrics.heightPixels
-            val minimalHeight = (screenHeight * 0.15f).toInt()
-
+            // Don't set restrictive height - let it wrap content to show buttons
             val layoutParams = routeSummaryContainer.layoutParams
-            layoutParams.height = minimalHeight
+            layoutParams.height = ViewGroup.LayoutParams.WRAP_CONTENT
             routeSummaryContainer.layoutParams = layoutParams
 
             routeSummaryContainer.visibility = View.VISIBLE
@@ -770,22 +732,7 @@ class UIController(
             routeExpandCollapseButton.setImageResource(android.R.drawable.ic_menu_more)
         }
     }
-
-    fun handleKeyboardVisibility(isVisible: Boolean) {
-        if (isVisible && isRouteSummaryExpanded) {
-            // When keyboard is visible, ensure the focused input is scrolled into view
-            routeDetailsContainer.post {
-                val focusedView = routeDetailsContainer.findFocus()
-                focusedView?.let { view ->
-                    routeDetailsContainer.requestChildRectangleOnScreen(
-                        view,
-                        android.graphics.Rect(0, 0, view.width, view.height),
-                        true
-                    )
-                }
-            }
-        }
-    }
+    
 
     @SuppressLint("DefaultLocale")
     fun updateRouteSummaryWithActualData(route: Route) {
