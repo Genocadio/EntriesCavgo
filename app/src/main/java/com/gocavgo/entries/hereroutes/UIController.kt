@@ -15,7 +15,6 @@ import android.annotation.SuppressLint
 import android.view.ViewGroup
 import android.widget.ScrollView
 import com.gocavgo.entries.R
-import com.here.sdk.search.Place
 import com.here.sdk.routing.Route
 import androidx.core.view.isNotEmpty
 
@@ -39,7 +38,7 @@ class UIController(
 ) {
     private val logTag = UIController::class.java.simpleName
 
-    // UPDATED: Use DbPlace objects instead of Place objects
+    // UPDATED: Use DbPlace objects exclusively
     var onRouteStopsDbDataRequest: (() -> Triple<DbPlace?, DbPlace?, List<DbPlace>>)? = null
     private var currentOriginDbPlace: DbPlace? = null
     private var currentDestinationDbPlace: DbPlace? = null
@@ -47,14 +46,15 @@ class UIController(
 
     // Route summary views
     private lateinit var routeExpandCollapseButton: ImageButton
-
     private lateinit var routeDetailsContainer: ScrollView
-
     private lateinit var routeStopsContainer: LinearLayout
     private lateinit var tvRouteOriginDestination: TextView
     private lateinit var tvWaypointCount: TextView
     private var isRouteSummaryExpanded = false
     private lateinit var routeConfigurationContainer: LinearLayout
+    private lateinit var databaseSearchToggle: androidx.appcompat.widget.SwitchCompat
+    private lateinit var searchModeIndicator: TextView
+    private var isDatabaseSearchEnabled = false
     private lateinit var etRouteName: com.google.android.material.textfield.TextInputEditText
     private lateinit var etRoutePrice: com.google.android.material.textfield.TextInputEditText
     private lateinit var cbCityRoute: android.widget.CheckBox
@@ -62,7 +62,7 @@ class UIController(
     private lateinit var waypointPriceInputsContainer: LinearLayout
     private val waypointPriceInputs = mutableListOf<com.google.android.material.textfield.TextInputEditText>()
 
-    // REMOVED: Old Place objects - we now use DbPlace exclusively
+    // Route data - no HERE SDK Place dependency
     private var currentRoute: Route? = null
 
     // Callbacks
@@ -71,15 +71,12 @@ class UIController(
     var onRouteDataRequest: (() -> Pair<Boolean, Boolean>)? = null
     var onAutoSuggestRequested: ((String) -> Unit)? = null
 
-    // REMOVED: Old Place callback - replaced with DbPlace callback
-    // var onRouteStopsDataRequest: (() -> Triple<Place?, Place?, List<Place>>)? = null
-
     init {
         setupSearchOverlay()
         setupLocationActionButtons()
         setupEnhancedRouteSummary()
+        setupDatabaseSearchToggle()
     }
-    
 
     private fun setupEnhancedRouteSummary() {
         // Find or create the route summary views
@@ -138,7 +135,64 @@ class UIController(
         return container
     }
 
+    private fun setupDatabaseSearchToggle() {
+        // Reference the toggle from the search overlay layout
+        databaseSearchToggle = searchOverlay.findViewById(R.id.database_search_toggle)
+        searchModeIndicator = searchOverlay.findViewById(R.id.search_mode_indicator)
 
+        databaseSearchToggle.setOnCheckedChangeListener { _, isChecked ->
+            isDatabaseSearchEnabled = isChecked
+            updateSearchModeIndicator(isChecked)
+            Log.d(logTag, "Database search mode: ${if (isChecked) "Enabled" else "Disabled"}")
+        }
+
+        // Initialize with default state
+        updateSearchModeIndicator(false)
+    }
+
+
+    private fun createSearchModeIndicator(): TextView {
+        val indicator = TextView(context).apply {
+            id = R.id.search_mode_indicator
+            textSize = 12f
+            setTextColor(context.getColor(android.R.color.darker_gray))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomMargin = 16
+            }
+        }
+
+        routeConfigurationContainer.addView(indicator, 1) // Add after toggle
+        return indicator
+    }
+
+    private fun updateSearchModeIndicator(isDatabaseMode: Boolean) {
+        searchModeIndicator.text = if (isDatabaseMode) {
+            "🔍 Searching saved locations only"
+        } else {
+            "🌍 Searching all locations via Maps"
+        }
+    }
+
+    fun isDatabaseSearchMode(): Boolean = isDatabaseSearchEnabled
+    private fun createDatabaseSearchToggle(): androidx.appcompat.widget.SwitchCompat {
+        val toggle = androidx.appcompat.widget.SwitchCompat(context).apply {
+            id = R.id.database_search_toggle
+            text = "Use Saved Locations"
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = 16
+                bottomMargin = 8
+            }
+        }
+
+        routeConfigurationContainer.addView(toggle, 0) // Add at top of configuration
+        return toggle
+    }
 
     @SuppressLint("UseCompatLoadingForDrawables")
     private fun createExpandCollapseButton(): ImageButton {
@@ -184,7 +238,6 @@ class UIController(
         routeSummaryContainer.addView(container)
         return container
     }
-
 
     private fun createRouteStopsContainer(): LinearLayout {
         val container = LinearLayout(context).apply {
@@ -341,7 +394,6 @@ class UIController(
         }
     }
 
-
     // UPDATED: Use DbPlace data exclusively
     private fun updateDetailedRouteView() {
         val routeData = onRouteStopsDbDataRequest?.invoke()
@@ -351,7 +403,7 @@ class UIController(
             currentWaypointDbPlaces = waypointsDb
 
             populateRouteStopsContainerFromDbPlaces()
-            updateWaypointPriceInputs(waypointsDb) // Add this line
+            updateWaypointPriceInputs(waypointsDb)
         }
     }
 
@@ -440,17 +492,54 @@ class UIController(
 
     @SuppressLint("DefaultLocale")
     fun validateAndCreateFinalRoute(): FinalRoute? {
+        // Get fresh route data instead of using cached references
+        val routeData = onRouteStopsDbDataRequest?.invoke()
+        val (origin, destination, waypoints) = routeData ?: Triple(null, null, emptyList())
+        val route = currentRoute
+
+        if (origin == null || destination == null || route == null) {
+            CustomToast.showWarning(context, "Route data is incomplete")
+            return null
+        }
+
         // Validate required fields
         val routePriceText = etRoutePrice.text?.toString()?.trim()
         if (routePriceText.isNullOrEmpty()) {
-            android.widget.Toast.makeText(context, "Route price is required", android.widget.Toast.LENGTH_SHORT).show()
+            CustomToast.showWarning(context, "Route price is required")
             return null
         }
 
         val routePrice = routePriceText.toDoubleOrNull()
         if (routePrice == null || routePrice < 0) {
-            android.widget.Toast.makeText(context, "Please enter a valid route price", android.widget.Toast.LENGTH_SHORT).show()
+            CustomToast.showError(context, "Please enter a valid route price")
             return null
+        }
+
+        // Validate origin location data
+        if (!origin.hasValidLocationData()) {
+            val errorMessage = origin.getLocationValidationError()
+                ?: "Origin location is missing district or province information"
+            CustomToast.showWarning(context,"Cannot save route origin: $errorMessage")
+            return null
+        }
+
+        // Validate destination location data
+        if (!destination.hasValidLocationData()) {
+            val errorMessage = destination.getLocationValidationError()
+                ?: "Destination location is missing district or province information"
+            CustomToast.showWarning(context,"Cannot save route dest: $errorMessage")
+            return null
+        }
+
+        // Validate waypoint location data
+        waypoints.forEachIndexed { index, waypoint ->
+            if (!waypoint.hasValidLocationData()) {
+                val errorMessage = waypoint.getLocationValidationError()
+                    ?: "Waypoint location is missing district or province information"
+                val waypointName = waypoint.getName()
+                CustomToast.showWarning(context, "Cannot save route waypoint: '$waypointName' - $errorMessage")
+                return null
+            }
         }
 
         // Validate waypoint prices if waypoints exist
@@ -458,33 +547,23 @@ class UIController(
         waypointPriceInputs.forEachIndexed { index, editText ->
             val priceText = editText.text?.toString()?.trim()
             if (priceText.isNullOrEmpty()) {
-                val waypointName = currentWaypointDbPlaces.getOrNull(index)?.getName() ?: "Waypoint ${index + 1}"
-                android.widget.Toast.makeText(context, "Price for $waypointName is required", android.widget.Toast.LENGTH_SHORT).show()
+                val waypointName = waypoints.getOrNull(index)?.getName() ?: "Waypoint ${index + 1}"
+                CustomToast.showWarning(context, "Please enter a price for $waypointName")
                 return null
             }
 
             val price = priceText.toDoubleOrNull()
             if (price == null || price < 0) {
-                val waypointName = currentWaypointDbPlaces.getOrNull(index)?.getName() ?: "Waypoint ${index + 1}"
-                android.widget.Toast.makeText(context, "Please enter a valid price for $waypointName", android.widget.Toast.LENGTH_SHORT).show()
+                val waypointName = waypoints.getOrNull(index)?.getName() ?: "Waypoint ${index + 1}"
+                CustomToast.showWarning(context, "Please enter a valid price for $waypointName")
                 return null
             }
 
             waypointPrices.add(price)
         }
 
-        // Get required route data
-        val origin = currentOriginDbPlace
-        val destination = currentDestinationDbPlace
-        val route = currentRoute
-
-        if (origin == null || destination == null || route == null) {
-            android.widget.Toast.makeText(context, "Route data is incomplete", android.widget.Toast.LENGTH_SHORT).show()
-            return null
-        }
-
         // Create waypoints with prices
-        val waypointsWithPrices = currentWaypointDbPlaces.mapIndexed { index, dbPlace ->
+        val waypointsWithPrices = waypoints.mapIndexed { index, dbPlace ->
             WaypointWithPrice(dbPlace, waypointPrices.getOrElse(index) { 0.0 })
         }
 
@@ -496,7 +575,7 @@ class UIController(
         val distanceText = if (route.lengthInMeters >= 1000) {
             String.format("%.1f km", route.lengthInMeters / 1000.0)
         } else {
-            "${route.lengthInMeters} m"
+            "${route.lengthInMeters.toInt()} m"
         }
 
         val durationText = formatDuration(route.duration.seconds)
@@ -513,7 +592,9 @@ class UIController(
         )
     }
 
-    // UPDATED: This is now the primary method for populating route stops
+    // Add this helper method to show toast messages
+
+    // UPDATED: Primary method for populating route stops using DbPlace exclusively
     private fun populateRouteStopsContainerFromDbPlaces() {
         routeStopsContainer.removeAllViews()
 
@@ -597,10 +678,6 @@ class UIController(
         routeStopsContainer.addView(stopView)
     }
 
-    // REMOVED: Old populateRouteStopsContainer method - replaced with DbPlace version
-
-    // REMOVED: Old addRouteStopView method - replaced with DbPlace version
-
     private fun addConnectorLine() {
         val connector = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -647,13 +724,16 @@ class UIController(
         Log.d(logTag, "Search state cleared")
     }
 
-    // UPDATED: Enhanced to use DbPlace.getName() for place details
-    fun showPlaceDetails(place: Place, dbPlace: DbPlace? = null) {
-        val displayPlace = dbPlace ?: DbPlace.fromPlace(place)
+    // UPDATED: Now accepts only DbPlace, with optional compatibility for existing code
+    fun showPlaceDetails(originalPlace: com.here.sdk.search.Place? = null, dbPlace: DbPlace) {
+        // UPDATED: Use DbPlace exclusively, ignore originalPlace parameter
+        val displayPlace = dbPlace
 
         // UPDATED: Use DbPlace.getName() to show custom names in place details
         tvPlaceTitle.text = displayPlace.getName() // Will show custom name if set
-        tvPlaceAddress.text = displayPlace.address
+
+        // UPDATED: Show address from DbPlace
+        tvPlaceAddress.text = displayPlace.address ?: displayPlace.customDistrict
 
         // UPDATED: Show district information if available
         val typeWithDistrict = displayPlace.areaType?.let { areaType ->
@@ -676,6 +756,7 @@ class UIController(
 
         updateActionButtonsVisibility()
     }
+
 
     private fun updateActionButtonsVisibility() {
         val selectionState = onSelectionStateRequest?.invoke()
@@ -732,7 +813,6 @@ class UIController(
             routeExpandCollapseButton.setImageResource(android.R.drawable.ic_menu_more)
         }
     }
-    
 
     @SuppressLint("DefaultLocale")
     fun updateRouteSummaryWithActualData(route: Route) {
@@ -856,10 +936,13 @@ class UIController(
         layoutParams.height = ViewGroup.LayoutParams.WRAP_CONTENT
         routeSummaryContainer.layoutParams = layoutParams
 
+        // UPDATED: Clear DbPlace references instead of Place objects
         currentOriginDbPlace = null
         currentDestinationDbPlace = null
         currentWaypointDbPlaces = emptyList()
         currentRoute = null
+
+        // Clear form inputs
         etRouteName.setText("")
         etRoutePrice.setText("")
         cbCityRoute.isChecked = false

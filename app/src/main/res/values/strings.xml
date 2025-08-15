@@ -52,7 +52,7 @@
     <string name="add_waypoint">Add Waypoint</string>
     <string name="view_locations">View Locations</string>
     <string name="view_routes">View Routes</string>
-    <string name="create_route">Create Route</string>
+    <string name="create_route">Create Route or location</string>
     <string name="total_routes_0">Total Routes: 0</string>
     <string name="change_map_style">Change Map Style</string>
 </resources>

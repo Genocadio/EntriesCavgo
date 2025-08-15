@@ -50,6 +50,8 @@ import com.here.sdk.routing.Waypoint
 import java.text.DateFormat
 import java.text.SimpleDateFormat
 import java.util.Locale
+import com.here.sdk.routing.RouteOptions
+import com.here.sdk.routing.RouteHandle
 
 class RoutingExample(private val context: Context, private val mapView: MapView) {
 
@@ -61,12 +63,13 @@ class RoutingExample(private val context: Context, private val mapView: MapView)
     private var originCoordinates: GeoCoordinates? = null
     private var destinationCoordinates: GeoCoordinates? = null
     private val waypointsList = arrayListOf<GeoCoordinates>()
+    private var currentRouteHandle: String? = null
 
     private var trafficDisabled = false
     private val timeUtils = TimeUtils()
 
     // Callback for route calculation results
-    var onRouteCalculated: ((Route?) -> Unit)? = null
+    var onRouteCalculated: ((Route?, String?) -> Unit)? = null
 
     init {
         val camera: MapCamera = mapView.camera
@@ -170,7 +173,7 @@ class RoutingExample(private val context: Context, private val mapView: MapView)
         if (origin == null || destination == null) {
             Log.w(TAG, "Cannot calculate route - Origin: $origin, Destination: $destination")
             clearMap()
-            onRouteCalculated?.invoke(null)
+            onRouteCalculated?.invoke(null, null) // Notify with null route and no route handle
             return
         }
 
@@ -198,13 +201,13 @@ class RoutingExample(private val context: Context, private val mapView: MapView)
         originCoordinates = null
         destinationCoordinates = null
         waypointsList.clear()
+        currentRouteHandle = null
 
         // Clear the visual route from map
         clearMap()
 
         Log.d(TAG, "Route data cleared successfully")
     }
-
 
 
     // Method to get current waypoints for external marker management
@@ -281,6 +284,11 @@ class RoutingExample(private val context: Context, private val mapView: MapView)
                 override fun onRouteCalculated(routingError: RoutingError?, routes: List<Route>?) {
                     if (routingError == null) {
                         val route: Route = routes!![0]
+
+                        // Extract route handle if available
+                        currentRouteHandle = route.routeHandle?.handle
+                        Log.d(TAG, "Route calculated with handle: $currentRouteHandle")
+
                         showRouteDetails(route)
                         showRouteOnMap(route)
                         logRouteRailwayCrossingDetails(route)
@@ -288,15 +296,20 @@ class RoutingExample(private val context: Context, private val mapView: MapView)
                         logRouteViolations(route)
                         logTollDetails(route)
 
-                        // Notify callback with successful route
-                        onRouteCalculated?.invoke(route)
+                        // Notify callback with successful route and route handle
+                        onRouteCalculated?.invoke(route, currentRouteHandle)
                     } else {
                         showDialog("Error while calculating a route:", routingError.toString())
-                        // Notify callback with null route (error)
-                        onRouteCalculated?.invoke(null)
+                        currentRouteHandle = null
+                        // Notify callback with null route and no route handle (error)
+                        onRouteCalculated?.invoke(null, null)
                     }
                 }
             })
+    }
+
+    fun getCurrentRouteHandle(): String? {
+        return currentRouteHandle
     }
 
     // Legacy addWaypoints method for backward compatibility
@@ -492,6 +505,9 @@ class RoutingExample(private val context: Context, private val mapView: MapView)
             val carOptions = CarOptions()
             carOptions.routeOptions.enableTolls = true
 
+            // Enable route handle generation
+            carOptions.routeOptions.enableRouteHandle = true
+
             // Enable usage of HOV and HOT lanes.
             // Note: These lanes will only be used if they are available in the selected country.
             carOptions.allowOptions.allowHov = true;
@@ -603,7 +619,7 @@ class RoutingExample(private val context: Context, private val mapView: MapView)
             } else {
                 Log.w(TAG, "Cannot recalculate route - missing origin or destination")
                 clearMap()
-                onRouteCalculated?.invoke(null)
+                onRouteCalculated?.invoke(null, null) // Notify with null route and no route handle
             }
         } else {
             Log.w(TAG, "Cannot remove waypoint: invalid index $index (waypoints count: ${waypointsList.size})")
@@ -615,27 +631,28 @@ class RoutingExample(private val context: Context, private val mapView: MapView)
 
     fun clearRouteAfterOriginDeletion() {
         originCoordinates = null
+        currentRouteHandle = null
         Log.d(TAG, "Origin deleted - clearing entire route")
 
         // Clear the visual route from map
         clearMap()
 
         // Notify callback that route is cleared
-        onRouteCalculated?.invoke(null)
+        onRouteCalculated?.invoke(null, null)
 
         Log.d(TAG, "Route cleared after origin deletion")
     }
 
-    // Method to clear route after destination deletion
     fun clearRouteAfterDestinationDeletion() {
         destinationCoordinates = null
+        currentRouteHandle = null
         Log.d(TAG, "Destination deleted - clearing entire route")
 
         // Clear the visual route from map
         clearMap()
 
         // Notify callback that route is cleared
-        onRouteCalculated?.invoke(null)
+        onRouteCalculated?.invoke(null, null)
 
         Log.d(TAG, "Route cleared after destination deletion")
     }

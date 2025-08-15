@@ -6,6 +6,8 @@ import android.widget.Button
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.gocavgo.entries.hereroutes.ManageRoute
+import com.gocavgo.entries.manageplace.PlaceManagementActivity
+import com.gocavgo.entries.manageroutes.RouteManagementActivity
 import com.gocavgo.entries.mapview.CreateRouteActivity
 
 class MainActivity : AppCompatActivity() {
@@ -15,6 +17,7 @@ class MainActivity : AppCompatActivity() {
 
         val btnCreateRoute: Button = findViewById(R.id.btn_create_route)
         val btnViewRoutes: Button = findViewById(R.id.btn_view_routes)
+        val btnViewPlaces: Button = findViewById(R.id.btn_view_locations)
 
         if (!PermissionManager.hasPermissions(this)) {
             PermissionManager.requestPermissions(this)
@@ -22,19 +25,19 @@ class MainActivity : AppCompatActivity() {
 
         btnCreateRoute.setOnClickListener {
             if (PermissionManager.hasPermissions(this)) {
-                startActivity(Intent(this, CreateRouteActivity::class.java))
-            } else {
-                PermissionManager.requestPermissions(this)
-            }
-        }
-        btnViewRoutes.setOnClickListener {
-            if (PermissionManager.hasPermissions(this)) {
                 startActivity(Intent(this, ManageRoute::class.java))
                 Toast.makeText(this, "View Existing Routes (coming soon)", Toast.LENGTH_SHORT)
                     .show()
             } else {
                 PermissionManager.requestPermissions(this)
             }
+        }
+        btnViewRoutes.setOnClickListener {
+            startActivity(Intent(this, RouteManagementActivity::class.java))
+
+        }
+        btnViewPlaces.setOnClickListener {
+            startActivity(Intent(this, PlaceManagementActivity::class.java))
         }
     }
 

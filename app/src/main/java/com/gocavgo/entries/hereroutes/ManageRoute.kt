@@ -32,6 +32,10 @@ import androidx.core.view.isVisible
 import com.here.sdk.mapview.MapMarker
 import kotlin.math.abs
 import com.here.sdk.core.Metadata
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
+import com.gocavgo.entries.service.RemoteDataManager
+import com.gocavgo.entries.service.RemoteResult
 
 class ManageRoute : AppCompatActivity() {
 
@@ -53,6 +57,8 @@ class ManageRoute : AppCompatActivity() {
     private lateinit var placeDetailsContainer: LinearLayout
     private lateinit var routeSummaryContainer: LinearLayout
     private lateinit var routeActionsContainer: LinearLayout
+
+    private var currentRouteHandle: String? = null
 
     // Place details views
     private lateinit var tvPlaceTitle: TextView
@@ -84,19 +90,17 @@ class ManageRoute : AppCompatActivity() {
     private var selectedDestination: GeoCoordinates? = null
     private var currentSelectedPlace: Place? = null
 
-    // NEW: Place objects for route planning
-    private var originPlace: Place? = null
-    private var destinationPlace: Place? = null
-    private var waypointPlaces: MutableList<Place> = mutableListOf()
-
+    // DbPlace objects for route planning (independent of HERE SDK)
     private var originDbPlace: DbPlace? = null
     private var destinationDbPlace: DbPlace? = null
     private var waypointDbPlaces: MutableList<DbPlace> = mutableListOf()
+
     private lateinit var btnExpandRoute: ImageButton
     private lateinit var routeDetailsContainer: ScrollView
     private lateinit var routeStopsContainer: LinearLayout
     private lateinit var btnClearLocation: Button
     private lateinit var btnAddWaypointRoute: Button
+
 
     // Available map schemes
     private val mapSchemes = listOf(
@@ -114,7 +118,6 @@ class ManageRoute : AppCompatActivity() {
         "Hybrid Day",
         "Hybrid Night"
     )
-
 
     @RequiresPermission(allOf = [Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION])
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -226,13 +229,18 @@ class ManageRoute : AppCompatActivity() {
 
     private fun setupCallbacks() {
         // Setup routing callback
-        routingExample.onRouteCalculated = { route ->
+        routingExample.onRouteCalculated = { route, routeHandle ->
+            currentRouteHandle = routeHandle
             route?.let {
                 uiController.updateRouteSummaryWithActualData(it)
+                Log.d(TAG, "Route calculated with handle: $routeHandle")
             } ?: run {
+                currentRouteHandle = null
                 routeSummaryContainer.visibility = android.view.View.GONE
+                Log.d(TAG, "Route calculation failed - no handle available")
             }
         }
+
 
         // Setup search manager callbacks
         setupSearchManagerCallbacks()
@@ -253,10 +261,12 @@ class ManageRoute : AppCompatActivity() {
             currentSelectedPlace = place
 
             place.geoCoordinates?.let { coordinates ->
-                handleLocationSelection(coordinates, place.title, place)
-
-                // Create DbPlace and determine marker type
+                // Create DbPlace from HERE SDK Place
                 val dbPlace = DbPlace.fromPlace(place)
+                Log.d(TAG, "Created DbPlace - ID: ${dbPlace.id}, Edited: ${dbPlace.edited}")
+                handleLocationSelection(coordinates, place.title, dbPlace)
+
+                // Determine marker type
                 val markerType = when {
                     isSelectingOrigin -> "origin"
                     isSelectingDestination -> "destination"
@@ -271,14 +281,42 @@ class ManageRoute : AppCompatActivity() {
                 uiController.clearSearchState()
                 uiController.hideSearchOverlay()
 
-                // Show place details using DbPlace
+                // Show place details using DbPlace (compatible with original Place if needed)
                 uiController.showPlaceDetails(place, dbPlace)
             }
         }
 
+        searchManager.onDbPlaceSelected = { dbPlace ->
+            Log.d(TAG, "Database place selected: ${dbPlace.getName()} at ${dbPlace.latitude}, ${dbPlace.longitude}, ${dbPlace.id}. ${dbPlace.code}")
+
+            val coordinates = GeoCoordinates(dbPlace.latitude, dbPlace.longitude)
+
+            // Handle location selection using existing logic
+            handleLocationSelection(coordinates, dbPlace.getName(), dbPlace)
+
+            // Determine marker type for database places
+            val markerType = when {
+                isSelectingOrigin -> "origin"
+                isSelectingDestination -> "destination"
+                isSelectingWaypoint -> "waypoint"
+                else -> "waypoint"
+            }
+
+            // Add marker for database place
+            mapController.addSearchMarker(coordinates, dbPlace, markerType)
+            mapController.moveMapToLocation(coordinates)
+
+            uiController.clearSearchState()
+            uiController.hideSearchOverlay()
+
+            // Show place details using database place
+            uiController.showPlaceDetails(null, dbPlace)  // No original Place for DB results
+        }
+
         searchManager.onSearchError = { errorMessage ->
             runOnUiThread {
-                Toast.makeText(this, errorMessage, Toast.LENGTH_SHORT).show()
+                // OLD: Toast.makeText(this, errorMessage, Toast.LENGTH_SHORT).show()
+                CustomToast.showError(this, errorMessage)
             }
         }
 
@@ -296,13 +334,90 @@ class ManageRoute : AppCompatActivity() {
         }
     }
 
+    private fun markEdit(dbPlace: DbPlace) {
+        if (!dbPlace.id.isNullOrBlank()) {
+            Log.d(TAG, "=== MARKING PLACE AS EDITED ===")
+            Log.d(TAG, "Place: ${dbPlace.getName()}")
+            Log.d(TAG, "ID: ${dbPlace.id}")
+            Log.d(TAG, "Before - edited flag: ${dbPlace.edited}")
+
+            dbPlace.setEdited(true)
+
+            Log.d(TAG, "After - edited flag: ${dbPlace.edited}")
+            Log.d(TAG, "Has moved coordinates: ${dbPlace.hasMovedCoordinates}")
+            Log.d(TAG, "================================")
+        } else {
+            Log.w(TAG, "Cannot mark DbPlace as edited - no ID available: ${dbPlace.getName()}")
+            Log.w(TAG, "  Current coordinates: ${dbPlace.latitude}, ${dbPlace.longitude}")
+            Log.w(TAG, "  Has moved coordinates: ${dbPlace.hasMovedCoordinates}")
+        }
+    }
+
     private fun setupUIControllerCallbacks() {
         uiController.onLocationActionRequested = { action ->
             when (action) {
                 "save_location" -> {
-                    currentSelectedPlace?.let { place ->
-                        Log.d(TAG, "Location saved: ${place.title} - ${place.address}")
-                        Toast.makeText(this, "Location '${place.title}' saved to log", Toast.LENGTH_SHORT).show()
+                    // Find the DbPlace for the currently selected location
+                    val dbPlaceToSave = when {
+                        isSelectingOrigin -> originDbPlace
+                        isSelectingDestination -> destinationDbPlace
+                        isSelectingWaypoint -> waypointDbPlaces.lastOrNull()
+                        else -> {
+                            // Fallback: find DbPlace by current coordinates
+                            currentSelectedPlace?.geoCoordinates?.let { coords ->
+                                findDbPlaceForCoordinates(coords.latitude, coords.longitude)
+                            }
+                        }
+                    }
+
+                    dbPlaceToSave?.let { dbPlace ->
+                        Log.d(TAG, "About to save DbPlace:")
+                        Log.d(TAG, dbPlace.debugCoordinateState())
+
+                        // Create a proper copy for saving that handles moved coordinates correctly
+                        val finalDbPlace = dbPlace.createSaveCopy()
+
+                        Log.d(TAG, "Created save copy:")
+                        Log.d(TAG, finalDbPlace.debugCoordinateState())
+
+                        if (!finalDbPlace.hasValidLocationData()) {
+                            val errorMessage = finalDbPlace.getLocationValidationError()
+                                ?: "Location is missing district or province information"
+
+                            CustomToast.showWarning(this@ManageRoute, "Cannot save location: $errorMessage")
+                            Log.w(TAG, "Location save blocked - ${finalDbPlace.getName()}: $errorMessage")
+                            return@let
+                        }
+
+                        // Save using RemoteDataManager
+                        val remoteDataManager = RemoteDataManager.getInstance()
+
+                        lifecycleScope.launch {
+                            try {
+                                when (val result = remoteDataManager.savePlace(finalDbPlace)) {
+                                    is RemoteResult.Success -> {
+                                        runOnUiThread {
+                                            CustomToast.showSuccess(this@ManageRoute, "Location '${finalDbPlace.getName()}' saved successfully with ID: ${result.data.id}!")
+                                        }
+                                        Log.d(TAG, "Place saved to remote with ID: ${result.data.id}")
+                                        Log.d(TAG, "Final DbPlace saved coordinates: ${finalDbPlace.latitude}, ${finalDbPlace.longitude}")
+                                    }
+                                    is RemoteResult.Error -> {
+                                        runOnUiThread {
+                                            CustomToast.showError(this@ManageRoute, "Failed to save location: ${result.message}")
+                                        }
+                                        Log.e(TAG, "Failed to save place: ${result.message}")
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Exception during place save: ${e.message}", e)
+                                runOnUiThread {
+                                    CustomToast.showError(this@ManageRoute, "Error saving location: ${e.message}")
+                                }
+                            }
+                        }
+                    } ?: run {
+                        Toast.makeText(this, "No location selected to save", Toast.LENGTH_SHORT).show()
                     }
                 }
                 "add_destination" -> {
@@ -320,22 +435,19 @@ class ManageRoute : AppCompatActivity() {
                     Log.d(TAG, "Switched to waypoint selection mode")
                 }
                 "save_route" -> {
-                    // NEW: Validate and create FinalRoute before saving
-                    val finalRoute = uiController.validateAndCreateFinalRoute()
+                    val finalRoute = createFinalRouteWithHandle()
                     if (finalRoute != null) {
                         logFinalRouteDetails(finalRoute)
-                        Toast.makeText(this, "Route '${finalRoute.routeName ?: "Unnamed Route"}' saved successfully!", Toast.LENGTH_LONG).show()
+                        // OLD: Toast.makeText(this, "Route '${finalRoute.origin.getName()}'-> ${finalRoute.destination.getName()} saved successfully!", Toast.LENGTH_LONG).show()
+                        CustomToast.showSuccess(this, "Route '${finalRoute.origin.getName()}' → ${finalRoute.destination.getName()}' saved successfully!")
                     } else {
-                        // Error message is already shown by validateAndCreateFinalRoute
                         Log.w(TAG, "Failed to save route - validation failed")
                     }
                 }
                 "clear_route" -> {
                     resetToInitialState()
                 }
-                "start_navigation" -> {
-                    Toast.makeText(this, "Starting navigation...", Toast.LENGTH_SHORT).show()
-                }
+
             }
         }
 
@@ -356,9 +468,17 @@ class ManageRoute : AppCompatActivity() {
 
         // Handle auto-suggest requests (not direct search)
         uiController.onAutoSuggestRequested = { query ->
-            val centerCoordinates = mapView?.camera?.state?.targetCoordinates
-            centerCoordinates?.let {
-                searchManager.performAutoSuggest(query, it)
+            if (uiController.isDatabaseSearchMode()) {
+                // Use database search
+                Log.d(TAG, "Using database search for query: $query")
+                searchManager.performDatabaseSearch(query)
+            } else {
+                // Use HERE SDK autosuggest
+                Log.d(TAG, "Using HERE SDK autosuggest for query: $query")
+                val centerCoordinates = mapView?.camera?.state?.targetCoordinates
+                centerCoordinates?.let {
+                    searchManager.performAutoSuggest(query, it)
+                }
             }
         }
 
@@ -366,19 +486,54 @@ class ManageRoute : AppCompatActivity() {
         setupAdditionalButtons()
     }
 
-    private fun logFinalRouteDetails(finalRoute: FinalRoute) {
-        Log.d(TAG, finalRoute.toLogString())
+    private fun createFinalRouteWithHandle(): FinalRoute? {
+        // Get route data from UIController
+        val routeData = uiController.validateAndCreateFinalRoute()
 
-        // Additional summary log
-        Log.d(TAG, "=== ROUTE SAVE SUMMARY ===")
-        Log.d(TAG, "Route Name: ${finalRoute.routeName ?: "Unnamed Route"}")
-        Log.d(TAG, "Total Price: ${finalRoute.getTotalPrice()}")
-        Log.d(TAG, "City Route: ${finalRoute.isCityRoute}")
-        Log.d(TAG, "Stops: ${finalRoute.origin.getName()} → ${finalRoute.destination.getName()}")
-        if (finalRoute.waypoints.isNotEmpty()) {
-            Log.d(TAG, "Waypoints: ${finalRoute.waypoints.size}")
+        return routeData?.let { route ->
+            // Create new FinalRoute with the route handle
+            FinalRoute(
+                origin = route.origin,
+                id = route.id,
+                destination = route.destination,
+                routePrice = route.routePrice,
+                routeName = route.routeName,
+                isCityRoute = route.isCityRoute,
+                distance = route.distance,
+                duration = route.duration,
+                routeMapId = currentRouteHandle, // Add the route handle here
+                waypoints = route.waypoints
+            )
         }
-        Log.d(TAG, "=========================")
+    }
+
+    private fun logFinalRouteDetails(finalRoute: FinalRoute) {
+        val remoteDataManager = RemoteDataManager.getInstance()
+        lifecycleScope.launch {
+            try {
+                when (val result = remoteDataManager.saveRoute(finalRoute)) {
+                    is RemoteResult.Success -> {
+                        runOnUiThread {
+                            // OLD: Toast.makeText(this@ManageRoute, "Route '${finalRoute.routeName ?: "Unnamed Route"}' saved successfully with ID: ${result.data.id}!", Toast.LENGTH_LONG).show()
+                            CustomToast.showSuccess(this@ManageRoute, "Route '${finalRoute.routeName ?: "Unnamed Route"}' saved successfully with ID: ${result.data.id}!")
+                        }
+                        Log.d(TAG, "Route saved to remote with ID: ${result.data.id}")
+                    }
+                    is RemoteResult.Error -> {
+                        runOnUiThread {
+                            // OLD: Toast.makeText(this@ManageRoute, "Failed to save route: ${result.message}", Toast.LENGTH_LONG).show()
+                            CustomToast.showError(this@ManageRoute, "Failed to save route: ${result.message}")
+                        }
+                        Log.e(TAG, "Failed to save route: ${result.message}")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Exception during route save: ${e.message}", e)
+                runOnUiThread {
+                    CustomToast.showError(this@ManageRoute, "Error saving route: ${e.message}")
+                }
+            }
+        }
     }
 
     private fun setupAdditionalButtons() {
@@ -397,6 +552,7 @@ class ManageRoute : AppCompatActivity() {
 
     private fun setupMapControllerCallbacks() {
         mapController.onLocationReceived = { coordinates ->
+            mapController.clearAllMarkers()
             mapController.clearSearchMarkers()
             mapController.moveMapToLocation(coordinates)
             mapController.showLocationIndicatorPedestrian(coordinates)
@@ -414,25 +570,53 @@ class ManageRoute : AppCompatActivity() {
             }
         }
 
+        // FIXED: The onMarkerMoved callback now uses the OLD marker coordinates to find the DbPlace
         mapController.onMarkerMoved = { marker, newCoordinates ->
-            val routeNeedsRecalculation = updateRouteCoordinates(marker, newCoordinates)
+            // CRITICAL FIX: Use the OLD marker coordinates (before the move) to find the DbPlace
+            val oldCoordinates = marker.coordinates
 
-            // Find the updated DbPlace to get the proper display name
-            val dbPlace = findDbPlaceForMarker(newCoordinates)
-            val markerName = dbPlace?.getName() ?: "marker"
+            Log.d(TAG, "onMarkerMoved callback:")
+            Log.d(TAG, "  Old marker coordinates: ${oldCoordinates.latitude}, ${oldCoordinates.longitude}")
+            Log.d(TAG, "  New coordinates: ${newCoordinates.latitude}, ${newCoordinates.longitude}")
 
-            val statusMessage = if (routeNeedsRecalculation) {
-                "Moved '$markerName' and recalculated route"
+            // Find the DbPlace using the OLD coordinates (before the move)
+            val dbPlace = findDbPlaceForCoordinates(oldCoordinates.latitude, oldCoordinates.longitude)
+
+            if (dbPlace != null) {
+                Log.d(TAG, "Found DbPlace to update:")
+                Log.d(TAG, dbPlace.debugCoordinateState())
+                Log.d(TAG, "BEFORE ANY CHANGES - Edited flag: ${dbPlace.edited}")
+
+                // CRITICAL FIX: Mark as edited FIRST (if it has an ID)
+                if (!dbPlace.id.isNullOrBlank()) {
+                    Log.d(TAG, "Marking place as edited because coordinates are moving")
+                    markEdit(dbPlace)
+                    Log.d(TAG, "AFTER markEdit - Edited flag: ${dbPlace.edited}")
+                }
+
+                // THEN update the coordinates
+                dbPlace.updateCoordinates(newCoordinates.latitude, newCoordinates.longitude)
+                Log.d(TAG, "AFTER updateCoordinates - Edited flag: ${dbPlace.edited}")
+
+                Log.d(TAG, "DbPlace after coordinate update:")
+                Log.d(TAG, dbPlace.debugCoordinateState())
+
+                // Update route coordinates if needed
+                val routeNeedsRecalculation = updateRouteCoordinatesForMovedPlace(dbPlace, oldCoordinates, newCoordinates)
+
+                val markerName = dbPlace.getName()
+                val statusMessage = if (routeNeedsRecalculation) {
+                    "Moved '$markerName' and recalculated route"
+                } else {
+                    "Moved '$markerName' to new location"
+                }
+
+                Toast.makeText(this, statusMessage, Toast.LENGTH_SHORT).show()
+                Log.d(TAG, "Successfully updated DbPlace: $statusMessage")
+                Log.d(TAG, "FINAL - Edited flag: ${dbPlace.edited}")
             } else {
-                "Moved '$markerName' to new location"
-            }
-
-            Toast.makeText(this, statusMessage, Toast.LENGTH_SHORT).show()
-
-            // Log the updated DbPlace details
-            dbPlace?.let {
-                Log.d(TAG, "Updated DbPlace after move:")
-                Log.d(TAG, it.toLogString())
+                Log.w(TAG, "Could not find DbPlace for old coordinates: ${oldCoordinates.latitude}, ${oldCoordinates.longitude}")
+                Toast.makeText(this, "Warning: Could not update place coordinates", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -445,7 +629,7 @@ class ManageRoute : AppCompatActivity() {
         when (markerType) {
             "search_result" -> {
                 // Find which DbPlace this marker represents
-                val dbPlaceToDelete = findDbPlaceForMarker(markerCoords)
+                val dbPlaceToDelete = findDbPlaceForCoordinates(markerCoords.latitude, markerCoords.longitude)
                 val markerName = dbPlaceToDelete?.getName() ?: "marker"
 
                 Log.d(TAG, "Attempting to delete marker: $markerName at $markerCoords")
@@ -459,7 +643,6 @@ class ManageRoute : AppCompatActivity() {
 
                     Log.d(TAG, "Deleting origin marker: $markerName")
                     selectedOrigin = null
-                    originPlace = null
                     originDbPlace = null
 
                     // Clear the entire route since origin is removed
@@ -473,7 +656,6 @@ class ManageRoute : AppCompatActivity() {
 
                     Log.d(TAG, "Deleting destination marker: $markerName")
                     selectedDestination = null
-                    destinationPlace = null
                     destinationDbPlace = null
 
                     // Clear the entire route since destination is removed
@@ -486,15 +668,12 @@ class ManageRoute : AppCompatActivity() {
                     if (waypointIndex >= 0) {
                         Log.d(TAG, "Deleting waypoint marker at index $waypointIndex: $markerName")
 
-                        // Remove from all waypoint collections
-                        if (waypointIndex < waypointPlaces.size) {
-                            waypointPlaces.removeAt(waypointIndex)
-                        }
+                        // Remove from waypoint collections
                         if (waypointIndex < waypointDbPlaces.size) {
                             waypointDbPlaces.removeAt(waypointIndex)
                         }
 
-                        // Remove waypoint and recalculate route if origin and destination exist
+                        // Remove waypoint and recalculate route
                         routingExample.removeWaypointAndRecalculate(waypointIndex)
                         deletionMessage = "Waypoint '$markerName' deleted - route recalculated"
                     } else {
@@ -503,7 +682,7 @@ class ManageRoute : AppCompatActivity() {
                     }
                 }
 
-                Toast.makeText(this, deletionMessage, Toast.LENGTH_LONG).show()
+                CustomToast.showInfo(this, deletionMessage)
                 Log.d(TAG, "Marker deletion completed: $deletionMessage")
             }
             else -> {
@@ -523,20 +702,20 @@ class ManageRoute : AppCompatActivity() {
             return routingWaypointIndex
         }
 
-        // Fallback: check our local waypoint collections
+        // Fallback: check our local waypoint collections using coordinate comparison
         waypointDbPlaces.forEachIndexed { index, dbPlace ->
-            dbPlace.geoCoordinates?.let { dbCoords ->
-                if (abs(coordinates.latitude - dbCoords.latitude) < tolerance &&
-                    abs(coordinates.longitude - dbCoords.longitude) < tolerance) {
-                    Log.d(TAG, "Found waypoint at index $index using DbPlace collection")
-                    return index
-                }
+            if (abs(coordinates.latitude - dbPlace.latitude) < tolerance &&
+                abs(coordinates.longitude - dbPlace.longitude) < tolerance) {
+                Log.d(TAG, "Found waypoint at index $index using DbPlace collection")
+                return index
             }
         }
 
         Log.d(TAG, "No waypoint found at coordinates: ${coordinates.latitude}, ${coordinates.longitude}")
         return -1
     }
+
+
 
     private fun handleMarkerEdit(marker: MapMarker) {
         val metadata = marker.metadata
@@ -546,22 +725,36 @@ class ManageRoute : AppCompatActivity() {
         when (markerType) {
             "search_result" -> {
                 // Find which DbPlace this marker represents using current coordinates
-                val dbPlaceToEdit = findDbPlaceForMarker(currentMarkerCoords)
+                val dbPlaceToEdit = findDbPlaceForCoordinates(currentMarkerCoords.latitude, currentMarkerCoords.longitude)
 
                 dbPlaceToEdit?.let { dbPlace ->
                     Log.d(TAG, "Opening edit dialog for DbPlace:")
                     Log.d(TAG, dbPlace.toLogString())
+                    Log.d(TAG, "Original edited flag: ${dbPlace.edited}")
+
+                    // CRITICAL FIX: Mark as edited BEFORE opening dialog if coordinates moved
+                    if (dbPlace.hasMovedCoordinates && !dbPlace.id.isNullOrBlank()) {
+                        Log.d(TAG, "Marking place as edited due to moved coordinates")
+                        markEdit(dbPlace)
+                    }
 
                     val dialog = PlaceEditDialog.newInstance(dbPlace) { updatedDbPlace ->
                         // Update the DbPlace in collections while preserving coordinate updates
                         val finalDbPlace = if (dbPlace.hasMovedCoordinates) {
                             // If coordinates were moved, preserve them in the updated place
-                            updatedDbPlace.copy(updatedCoordinates = dbPlace.updatedCoordinates)
+                            updatedDbPlace.withUpdatedCoordinates(dbPlace.latitude, dbPlace.longitude)
+                                .also {
+                                    if (!it.id.isNullOrBlank()){
+                                        it.setEdited(true)
+                                        Log.d(TAG, "DbPlace marked as edited after coordinate move: ${it.getName()}")
+                                    }
+                                }
                         } else {
                             updatedDbPlace
                         }
+                        Log.d(TAG, "Final DbPlace edited flag: ${finalDbPlace.edited}")
 
-                        updateDbPlaceInCollections(dbPlace, finalDbPlace, currentMarkerCoords)
+                        updateDbPlaceInCollections(dbPlace, finalDbPlace, currentMarkerCoords.latitude, currentMarkerCoords.longitude)
 
                         // Update marker title using DbPlace.getName()
                         val newTitle = finalDbPlace.getName()
@@ -569,9 +762,10 @@ class ManageRoute : AppCompatActivity() {
                         val updatedMetadata = marker.metadata ?: Metadata()
                         updatedMetadata.setString("marker_title", newTitle)
                         marker.metadata = updatedMetadata
-                        // After updating the DbPlace in collections and marker metadata
+
+                        // Show updated place details (pass original Place if available for compatibility)
                         uiController.showPlaceDetails(finalDbPlace.originalPlace, finalDbPlace)
-                        Toast.makeText(this, "Place updated: $newTitle", Toast.LENGTH_SHORT).show()
+                        CustomToast.showSuccess(this, "Place updated: $newTitle")
 
                         Log.d(TAG, "Final updated DbPlace:")
                         Log.d(TAG, finalDbPlace.toLogString())
@@ -579,14 +773,16 @@ class ManageRoute : AppCompatActivity() {
 
                     dialog.show(supportFragmentManager, "PlaceEditDialog")
                 } ?: run {
-                    Toast.makeText(this, "Unable to edit this marker", Toast.LENGTH_SHORT).show()
+                    CustomToast.showWarning(this, "No location selected to save")
                     Log.w(TAG, "Could not find DbPlace for marker at coordinates: $currentMarkerCoords")
                 }
             }
         }
     }
-    private fun updateDbPlaceInCollections(oldDbPlace: DbPlace, newDbPlace: DbPlace, coordinates: GeoCoordinates) {
+
+    private fun updateDbPlaceInCollections(oldDbPlace: DbPlace, newDbPlace: DbPlace, latitude: Double, longitude: Double) {
         // Update origin
+        markEdit(newDbPlace)
         if (originDbPlace == oldDbPlace) {
             originDbPlace = newDbPlace
             Log.d(TAG, "Updated origin DbPlace: ${newDbPlace.getName()}")
@@ -607,75 +803,125 @@ class ManageRoute : AppCompatActivity() {
             Log.d(TAG, "Updated waypoint DbPlace at index $waypointIndex: ${newDbPlace.getName()}")
         }
     }
-    private fun findDbPlaceForMarker(coordinates: GeoCoordinates): DbPlace? {
+
+    private fun findDbPlaceForCoordinates(latitude: Double, longitude: Double): DbPlace? {
         val tolerance = 0.0001
 
-        // Check origin - compare with current coordinates (updated or original)
+        Log.d(TAG, "findDbPlaceForCoordinates called with: $latitude, $longitude")
+
+        // Check origin - compare with current coordinates
         originDbPlace?.let { dbPlace ->
-            dbPlace.geoCoordinates?.let { dbPlaceCoords ->
-                if (abs(coordinates.latitude - dbPlaceCoords.latitude) < tolerance &&
-                    abs(coordinates.longitude - dbPlaceCoords.longitude) < tolerance) {
-                    return dbPlace
-                }
+            Log.d(TAG, "Checking origin DbPlace: ${dbPlace.latitude}, ${dbPlace.longitude}")
+            if (abs(latitude - dbPlace.latitude) < tolerance &&
+                abs(longitude - dbPlace.longitude) < tolerance) {
+                Log.d(TAG, "Found matching origin DbPlace")
+                return dbPlace
             }
         }
 
-        // Check destination - compare with current coordinates (updated or original)
+        // Check destination - compare with current coordinates
         destinationDbPlace?.let { dbPlace ->
-            dbPlace.geoCoordinates?.let { dbPlaceCoords ->
-                if (abs(coordinates.latitude - dbPlaceCoords.latitude) < tolerance &&
-                    abs(coordinates.longitude - dbPlaceCoords.longitude) < tolerance) {
-                    return dbPlace
-                }
+            Log.d(TAG, "Checking destination DbPlace: ${dbPlace.latitude}, ${dbPlace.longitude}")
+            if (abs(latitude - dbPlace.latitude) < tolerance &&
+                abs(longitude - dbPlace.longitude) < tolerance) {
+                Log.d(TAG, "Found matching destination DbPlace")
+                return dbPlace
             }
         }
 
-        // Check waypoints - compare with current coordinates (updated or original)
-        waypointDbPlaces.forEach { dbPlace ->
-            dbPlace.geoCoordinates?.let { dbPlaceCoords ->
-                if (abs(coordinates.latitude - dbPlaceCoords.latitude) < tolerance &&
-                    abs(coordinates.longitude - dbPlaceCoords.longitude) < tolerance) {
-                    return dbPlace
-                }
+        // Check waypoints - compare with current coordinates
+        waypointDbPlaces.forEachIndexed { index, dbPlace ->
+            Log.d(TAG, "Checking waypoint $index DbPlace: ${dbPlace.latitude}, ${dbPlace.longitude}")
+            if (abs(latitude - dbPlace.latitude) < tolerance &&
+                abs(longitude - dbPlace.longitude) < tolerance) {
+                Log.d(TAG, "Found matching waypoint $index DbPlace")
+                return dbPlace
             }
         }
 
+        Log.d(TAG, "No matching DbPlace found for coordinates: $latitude, $longitude")
         return null
     }
 
-    private fun handleLocationSelection(coordinates: GeoCoordinates, title: String, place: Place? = null) {
+    private fun handleLocationSelection(coordinates: GeoCoordinates, title: String, dbPlace: DbPlace) {
         when {
             isSelectingOrigin -> {
                 selectedOrigin = coordinates
-                originPlace = place
-                originDbPlace = place?.let { DbPlace.fromPlace(it) }
+                originDbPlace = dbPlace
                 routingExample.setOrigin(coordinates)
-                val displayName = originDbPlace?.getName() ?: title
+                val displayName = dbPlace.getName()
                 Log.d(TAG, "Origin selected: $displayName at ${coordinates.latitude}, ${coordinates.longitude}")
-                Log.d(TAG, "Origin DbPlace: ${originDbPlace?.toLogString()}")
+                Log.d(TAG, "Origin DbPlace: ${dbPlace.toLogString()}")
             }
             isSelectingDestination -> {
                 selectedDestination = coordinates
-                destinationPlace = place
-                destinationDbPlace = place?.let { DbPlace.fromPlace(it) }
+                destinationDbPlace = dbPlace
                 routingExample.setDestination(coordinates)
-                val displayName = destinationDbPlace?.getName() ?: title
+                val displayName = dbPlace.getName()
                 Log.d(TAG, "Destination selected: $displayName at ${coordinates.latitude}, ${coordinates.longitude}")
-                Log.d(TAG, "Destination DbPlace: ${destinationDbPlace?.toLogString()}")
+                Log.d(TAG, "Destination DbPlace: ${dbPlace.toLogString()}")
             }
             isSelectingWaypoint -> {
                 routingExample.addWaypoint(coordinates)
-                place?.let {
-                    waypointPlaces.add(it)
-                    waypointDbPlaces.add(DbPlace.fromPlace(it))
-                }
-                val displayName = waypointDbPlaces.lastOrNull()?.getName() ?: title
+                waypointDbPlaces.add(dbPlace)
+                val displayName = dbPlace.getName()
                 Log.d(TAG, "Waypoint added: $displayName at ${coordinates.latitude}, ${coordinates.longitude}")
                 Log.d(TAG, "Waypoint DbPlaces count: ${waypointDbPlaces.size}")
             }
         }
     }
 
+    private fun updateRouteCoordinatesForMovedPlace(
+        dbPlace: DbPlace,
+        oldCoordinates: GeoCoordinates,
+        newCoordinates: GeoCoordinates
+    ): Boolean {
+        if (!routingExample.hasActiveRoute()) {
+            return false
+        }
+
+        var routeNeedsRecalculation = false
+        val tolerance = 0.0001
+
+        Log.d(TAG, "updateRouteCoordinatesForMovedPlace:")
+        Log.d(TAG, "  DbPlace: ${dbPlace.getName()}")
+        Log.d(TAG, "  Old coordinates: ${oldCoordinates.latitude}, ${oldCoordinates.longitude}")
+        Log.d(TAG, "  New coordinates: ${newCoordinates.latitude}, ${newCoordinates.longitude}")
+        markEdit(dbPlace)
+
+        // Check if this is the origin
+        if (selectedOrigin != null &&
+            abs(oldCoordinates.latitude - selectedOrigin!!.latitude) < tolerance &&
+            abs(oldCoordinates.longitude - selectedOrigin!!.longitude) < tolerance) {
+
+            Log.d(TAG, "Updating ORIGIN route coordinates")
+            selectedOrigin = newCoordinates
+            routingExample.updateOrigin(newCoordinates)
+            routeNeedsRecalculation = true
+        }
+        // Check if this is the destination
+        else if (selectedDestination != null &&
+            abs(oldCoordinates.latitude - selectedDestination!!.latitude) < tolerance &&
+            abs(oldCoordinates.longitude - selectedDestination!!.longitude) < tolerance) {
+
+            Log.d(TAG, "Updating DESTINATION route coordinates")
+            selectedDestination = newCoordinates
+            routingExample.updateDestination(newCoordinates)
+            routeNeedsRecalculation = true
+        }
+        // Check if this is a waypoint
+        else {
+            val waypointIndex = routingExample.findWaypointIndex(oldCoordinates)
+            if (waypointIndex >= 0) {
+                Log.d(TAG, "Updating WAYPOINT $waypointIndex route coordinates")
+                routingExample.updateWaypoint(waypointIndex, newCoordinates)
+                routeNeedsRecalculation = true
+            }
+        }
+
+        Log.d(TAG, "Route needs recalculation: $routeNeedsRecalculation")
+        return routeNeedsRecalculation
+    }
 
     private fun updateRouteCoordinates(marker: com.here.sdk.mapview.MapMarker, newCoordinates: GeoCoordinates): Boolean {
         if (!routingExample.hasActiveRoute()) {
@@ -687,61 +933,104 @@ class ManageRoute : AppCompatActivity() {
         val markerType = metadata?.getString("marker_type")
         val currentMarkerCoords = marker.coordinates
 
+        Log.d(TAG, "updateRouteCoordinates called:")
+        Log.d(TAG, "  Marker type: $markerType")
+        Log.d(TAG, "  Current marker coords: ${currentMarkerCoords.latitude}, ${currentMarkerCoords.longitude}")
+        Log.d(TAG, "  New coordinates: ${newCoordinates.latitude}, ${newCoordinates.longitude}")
+
         when (markerType) {
             "search_result" -> {
-                // Find and update the corresponding DbPlace
-                val dbPlaceToUpdate = findDbPlaceForMarker(currentMarkerCoords)
-
+                // Check if this is the origin marker
                 if (selectedOrigin != null &&
                     abs(currentMarkerCoords.latitude - selectedOrigin!!.latitude) < 0.0001 &&
                     abs(currentMarkerCoords.longitude - selectedOrigin!!.longitude) < 0.0001) {
 
+                    Log.d(TAG, "Updating ORIGIN coordinates")
+
+                    // CRITICAL FIX: Update selectedOrigin FIRST
                     selectedOrigin = newCoordinates
 
-                    // Update origin DbPlace with new coordinates
-                    originDbPlace?.let { oldDbPlace ->
-                        val updatedDbPlace = oldDbPlace.withUpdatedCoordinates(newCoordinates)
-                        updateDbPlaceInCollections(oldDbPlace, updatedDbPlace, newCoordinates)
+                    // CRITICAL FIX: Update origin DbPlace with new coordinates
+                    originDbPlace?.let { dbPlace ->
+                        Log.d(TAG, "Origin DbPlace BEFORE update:")
+                        Log.d(TAG, dbPlace.debugCoordinateState())
+
+                        // Update the DbPlace coordinates directly
+                        dbPlace.updateCoordinates(newCoordinates.latitude, newCoordinates.longitude)
+
+                        Log.d(TAG, "Origin DbPlace AFTER update:")
+                        Log.d(TAG, dbPlace.debugCoordinateState())
+                    } ?: run {
+                        Log.w(TAG, "Origin DbPlace is null - cannot update coordinates")
                     }
 
                     routingExample.updateOrigin(newCoordinates)
                     routeNeedsRecalculation = true
                     Log.d(TAG, "Updated origin coordinates and DbPlace")
                 }
+                // Check if this is the destination marker
                 else if (selectedDestination != null &&
                     abs(currentMarkerCoords.latitude - selectedDestination!!.latitude) < 0.0001 &&
                     abs(currentMarkerCoords.longitude - selectedDestination!!.longitude) < 0.0001) {
 
+                    Log.d(TAG, "Updating DESTINATION coordinates")
+
+                    // CRITICAL FIX: Update selectedDestination FIRST
                     selectedDestination = newCoordinates
 
-                    // Update destination DbPlace with new coordinates
-                    destinationDbPlace?.let { oldDbPlace ->
-                        val updatedDbPlace = oldDbPlace.withUpdatedCoordinates(newCoordinates)
-                        updateDbPlaceInCollections(oldDbPlace, updatedDbPlace, newCoordinates)
+                    // CRITICAL FIX: Update destination DbPlace with new coordinates
+                    destinationDbPlace?.let { dbPlace ->
+                        Log.d(TAG, "Destination DbPlace BEFORE update:")
+                        Log.d(TAG, dbPlace.debugCoordinateState())
+
+                        // Update the DbPlace coordinates directly
+                        dbPlace.updateCoordinates(newCoordinates.latitude, newCoordinates.longitude)
+
+                        Log.d(TAG, "Destination DbPlace AFTER update:")
+                        Log.d(TAG, dbPlace.debugCoordinateState())
+                    } ?: run {
+                        Log.w(TAG, "Destination DbPlace is null - cannot update coordinates")
                     }
 
                     routingExample.updateDestination(newCoordinates)
                     routeNeedsRecalculation = true
                     Log.d(TAG, "Updated destination coordinates and DbPlace")
                 }
+                // Check if this is a waypoint marker
                 else {
                     val waypointIndex = routingExample.findWaypointIndex(currentMarkerCoords)
                     if (waypointIndex >= 0 && waypointIndex < waypointDbPlaces.size) {
-                        // Update waypoint DbPlace with new coordinates
-                        val oldDbPlace = waypointDbPlaces[waypointIndex]
-                        val updatedDbPlace = oldDbPlace.withUpdatedCoordinates(newCoordinates)
-                        updateDbPlaceInCollections(oldDbPlace, updatedDbPlace, newCoordinates)
+                        Log.d(TAG, "Updating WAYPOINT $waypointIndex coordinates")
+
+                        // CRITICAL FIX: Update waypoint DbPlace with new coordinates
+                        val dbPlace = waypointDbPlaces[waypointIndex]
+
+                        Log.d(TAG, "Waypoint DbPlace BEFORE update:")
+                        Log.d(TAG, dbPlace.debugCoordinateState())
+
+                        // Update the DbPlace coordinates directly
+                        dbPlace.updateCoordinates(newCoordinates.latitude, newCoordinates.longitude)
+
+                        Log.d(TAG, "Waypoint DbPlace AFTER update:")
+                        Log.d(TAG, dbPlace.debugCoordinateState())
 
                         routingExample.updateWaypoint(waypointIndex, newCoordinates)
                         routeNeedsRecalculation = true
                         Log.d(TAG, "Updated waypoint $waypointIndex coordinates and DbPlace")
+                    } else {
+                        Log.w(TAG, "Could not find waypoint to update at coordinates: $currentMarkerCoords")
                     }
                 }
             }
+            else -> {
+                Log.w(TAG, "Unknown marker type: $markerType")
+            }
         }
 
+        Log.d(TAG, "updateRouteCoordinates completed. Route needs recalculation: $routeNeedsRecalculation")
         return routeNeedsRecalculation
     }
+
 
 
     private fun resetToInitialState() {
@@ -752,12 +1041,9 @@ class ManageRoute : AppCompatActivity() {
         selectedOrigin = null
         selectedDestination = null
         currentSelectedPlace = null
+        currentRouteHandle = null
 
-        // Clear place objects
-        originPlace = null
-        destinationPlace = null
-        waypointPlaces.clear()
-
+        // Clear DbPlace objects
         originDbPlace = null
         destinationDbPlace = null
         waypointDbPlaces.clear()
@@ -771,7 +1057,6 @@ class ManageRoute : AppCompatActivity() {
 
         Log.d(TAG, "Reset to initial state completed - all places cleared")
     }
-
 
     @RequiresPermission(allOf = [Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION])
     private fun getLocation(onLocationReceived: (GeoCoordinates?) -> Unit) {

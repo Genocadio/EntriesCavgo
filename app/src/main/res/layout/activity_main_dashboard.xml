@@ -20,318 +20,143 @@
             android:orientation="vertical"
             android:background="@android:drawable/editbox_background"
             android:padding="24dp"
-            android:layout_marginBottom="16dp">
+            android:layout_marginBottom="24dp">
 
             <TextView
                 android:id="@+id/text_dashboard_title"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Routes Dashboard"
-                android:textSize="26sp"
+                android:text="Cavgo Dashboard"
+                android:textSize="28sp"
                 android:textStyle="bold"
                 android:textColor="#333"
                 android:layout_gravity="center_horizontal" />
 
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Route &amp; Location Data Management"
+                android:textSize="14sp"
+                android:textColor="#666"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginTop="4dp" />
+
         </LinearLayout>
 
-        <!-- Main Route Types Stats -->
+        <!-- App Information Section -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginBottom="16dp"
-            android:weightSum="2">
-
-            <!-- Kigali City Routes Card -->
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="160dp"
-                android:layout_weight="1"
-                android:orientation="vertical"
-                android:background="@android:drawable/editbox_background"
-                android:padding="16dp"
-                android:layout_marginEnd="8dp"
-                android:gravity="center">
-
-                <ImageView
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
-                    android:src="@android:drawable/ic_menu_mylocation"
-                    android:background="@android:color/transparent"
-                    app:tint="#4CAF50" />
-
-                <TextView
-                    android:id="@+id/text_kigali_routes"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="0"
-                    android:textSize="24sp"
-                    android:textStyle="bold"
-                    android:textColor="#333"
-                    android:layout_marginTop="12dp" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Kigali City Routes"
-                    android:textSize="12sp"
-                    android:textColor="#666"
-                    android:textAlignment="center"
-                    android:layout_marginTop="4dp" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Within Kigali districts"
-                    android:textSize="10sp"
-                    android:textColor="#888"
-                    android:textAlignment="center"
-                    android:layout_marginTop="2dp" />
-            </LinearLayout>
-
-            <!-- Provincial Routes Card -->
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="160dp"
-                android:layout_weight="1"
-                android:orientation="vertical"
-                android:background="@android:drawable/editbox_background"
-                android:padding="16dp"
-                android:layout_marginStart="8dp"
-                android:gravity="center">
-
-                <ImageView
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
-                    android:src="@android:drawable/ic_menu_directions"
-                    android:background="@android:color/transparent"
-                    app:tint="#FF9800" />
-
-                <TextView
-                    android:id="@+id/text_provincial_routes"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="0"
-                    android:textSize="24sp"
-                    android:textStyle="bold"
-                    android:textColor="#333"
-                    android:layout_marginTop="12dp" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Inter-Provincial"
-                    android:textSize="12sp"
-                    android:textColor="#666"
-                    android:textAlignment="center"
-                    android:layout_marginTop="4dp" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Between provinces"
-                    android:textSize="10sp"
-                    android:textColor="#888"
-                    android:textAlignment="center"
-                    android:layout_marginTop="2dp" />
-            </LinearLayout>
-        </LinearLayout>
-
-
-
-        <!-- Route Distribution Chart -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="240dp"
             android:orientation="vertical"
             android:background="@android:drawable/editbox_background"
-            android:padding="16dp"
-            android:layout_marginBottom="16dp">
+            android:padding="20dp"
+            android:layout_marginBottom="24dp">
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Location Distribution by Province"
-                android:textSize="18sp"
+                android:text="About Cavgo"
+                android:textSize="20sp"
                 android:textStyle="bold"
                 android:textColor="#333"
-                android:layout_marginBottom="8dp" />
+                android:layout_marginBottom="12dp" />
 
-            <!-- Province Distribution Bars -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Cavgo is your comprehensive solution for managing transportation routes and location data. Designed to streamline the process of creating, organizing, and maintaining route information across Rwanda."
+                android:textSize="14sp"
+                android:textColor="#555"
+                android:lineSpacingMultiplier="1.2"
+                android:layout_marginBottom="16dp" />
+
+            <!-- Feature Highlights -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
+                android:orientation="horizontal"
+                android:weightSum="3"
                 android:layout_marginTop="8dp">
 
-                <!-- Kigali -->
+                <!-- Route Management -->
                 <LinearLayout
-                    android:layout_width="match_parent"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:layout_marginBottom="8dp">
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="12dp">
+
+                    <ImageView
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
+                        android:src="@android:drawable/ic_menu_directions"
+                        android:background="@android:color/transparent"
+                        app:tint="#4CAF50" />
 
                     <TextView
-                        android:layout_width="80dp"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Kigali"
-                        android:textSize="12sp"
-                        android:textColor="#333" />
-
-                    <View
-                        android:id="@+id/bar_kigali"
-                        android:layout_width="0dp"
-                        android:layout_height="20dp"
-                        android:layout_weight="1"
-                        android:background="#4CAF50"
-                        android:layout_marginStart="8dp"
-                        android:layout_marginEnd="8dp" />
-
-                    <TextView
-                        android:id="@+id/count_kigali"
-                        android:layout_width="30dp"
-                        android:layout_height="wrap_content"
-                        android:text="0"
-                        android:textSize="12sp"
-                        android:textColor="#333" />
+                        android:text="Route\nManagement"
+                        android:textSize="11sp"
+                        android:textColor="#666"
+                        android:textAlignment="center"
+                        android:layout_marginTop="6dp" />
                 </LinearLayout>
 
-                <!-- Northern Province -->
+                <!-- Location Data -->
                 <LinearLayout
-                    android:layout_width="match_parent"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:layout_marginBottom="8dp">
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="12dp">
+
+                    <ImageView
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
+                        android:src="@android:drawable/ic_menu_mylocation"
+                        android:background="@android:color/transparent"
+                        app:tint="#FF9800" />
 
                     <TextView
-                        android:layout_width="80dp"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="North"
-                        android:textSize="12sp"
-                        android:textColor="#333" />
-
-                    <View
-                        android:id="@+id/bar_north"
-                        android:layout_width="0dp"
-                        android:layout_height="20dp"
-                        android:layout_weight="1"
-                        android:background="#FF9800"
-                        android:layout_marginStart="8dp"
-                        android:layout_marginEnd="8dp" />
-
-                    <TextView
-                        android:id="@+id/count_north"
-                        android:layout_width="30dp"
-                        android:layout_height="wrap_content"
-                        android:text="0"
-                        android:textSize="12sp"
-                        android:textColor="#333" />
+                        android:text="Location\nData Entry"
+                        android:textSize="11sp"
+                        android:textColor="#666"
+                        android:textAlignment="center"
+                        android:layout_marginTop="6dp" />
                 </LinearLayout>
 
-                <!-- Southern Province -->
+                <!-- Data Organization -->
                 <LinearLayout
-                    android:layout_width="match_parent"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:layout_marginBottom="8dp">
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="12dp">
+
+                    <ImageView
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
+                        android:src="@android:drawable/ic_menu_mapmode"
+                        android:background="@android:color/transparent"
+                        app:tint="#2196F3" />
 
                     <TextView
-                        android:layout_width="80dp"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="South"
-                        android:textSize="12sp"
-                        android:textColor="#333" />
-
-                    <View
-                        android:id="@+id/bar_south"
-                        android:layout_width="0dp"
-                        android:layout_height="20dp"
-                        android:layout_weight="1"
-                        android:background="#2196F3"
-                        android:layout_marginStart="8dp"
-                        android:layout_marginEnd="8dp" />
-
-                    <TextView
-                        android:id="@+id/count_south"
-                        android:layout_width="30dp"
-                        android:layout_height="wrap_content"
-                        android:text="0"
-                        android:textSize="12sp"
-                        android:textColor="#333" />
-                </LinearLayout>
-
-                <!-- Eastern Province -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:layout_marginBottom="8dp">
-
-                    <TextView
-                        android:layout_width="80dp"
-                        android:layout_height="wrap_content"
-                        android:text="East"
-                        android:textSize="12sp"
-                        android:textColor="#333" />
-
-                    <View
-                        android:id="@+id/bar_east"
-                        android:layout_width="0dp"
-                        android:layout_height="20dp"
-                        android:layout_weight="1"
-                        android:background="#9C27B0"
-                        android:layout_marginStart="8dp"
-                        android:layout_marginEnd="8dp" />
-
-                    <TextView
-                        android:id="@+id/count_east"
-                        android:layout_width="30dp"
-                        android:layout_height="wrap_content"
-                        android:text="0"
-                        android:textSize="12sp"
-                        android:textColor="#333" />
-                </LinearLayout>
-
-                <!-- Western Province -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical">
-
-                    <TextView
-                        android:layout_width="80dp"
-                        android:layout_height="wrap_content"
-                        android:text="West"
-                        android:textSize="12sp"
-                        android:textColor="#333" />
-
-                    <View
-                        android:id="@+id/bar_west"
-                        android:layout_width="0dp"
-                        android:layout_height="20dp"
-                        android:layout_weight="1"
-                        android:background="#FF5722"
-                        android:layout_marginStart="8dp"
-                        android:layout_marginEnd="8dp" />
-
-                    <TextView
-                        android:id="@+id/count_west"
-                        android:layout_width="30dp"
-                        android:layout_height="wrap_content"
-                        android:text="0"
-                        android:textSize="12sp"
-                        android:textColor="#333" />
+                        android:text="Data\nOrganization"
+                        android:textSize="11sp"
+                        android:textColor="#666"
+                        android:textAlignment="center"
+                        android:layout_marginTop="6dp" />
                 </LinearLayout>
             </LinearLayout>
         </LinearLayout>
-
-        <!-- Quick Stats Summary -->
-
 
         <!-- Action Buttons Section -->
         <LinearLayout
@@ -347,15 +172,16 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="@string/create_route"
-                android:padding="16dp"
+                android:padding="18dp"
                 android:backgroundTint="#4CAF50"
                 android:textColor="#FFFFFF"
                 android:textSize="16sp"
                 android:textStyle="bold"
-                android:layout_marginBottom="8dp"
+                android:layout_marginBottom="12dp"
                 android:drawableStart="@android:drawable/ic_input_add"
                 android:drawablePadding="8dp"
-                android:drawableTint="#FFFFFF" />
+                android:drawableTint="#FFFFFF"
+                android:elevation="2dp" />
 
             <!-- Secondary Actions -->
             <LinearLayout
@@ -371,30 +197,32 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="@string/view_routes"
-                    android:padding="14dp"
+                    android:padding="16dp"
                     android:backgroundTint="#FF9800"
                     android:textColor="#FFFFFF"
                     android:textSize="14sp"
                     android:layout_marginEnd="8dp"
                     android:drawableStart="@android:drawable/ic_menu_mapmode"
                     android:drawablePadding="6dp"
-                    android:drawableTint="#FFFFFF" />
+                    android:drawableTint="#FFFFFF"
+                    android:elevation="2dp" />
 
                 <Button
-                    android:id="@+id/btn_view_districts"
+                    android:id="@+id/btn_view_locations"
                     style="?android:attr/buttonBarButtonStyle"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="View Locations"
-                    android:padding="14dp"
+                    android:padding="16dp"
                     android:backgroundTint="#FF9800"
                     android:textColor="#FFFFFF"
                     android:textSize="14sp"
                     android:layout_marginStart="8dp"
                     android:drawableStart="@android:drawable/ic_menu_mylocation"
                     android:drawablePadding="6dp"
-                    android:drawableTint="#FFFFFF" />
+                    android:drawableTint="#FFFFFF"
+                    android:elevation="2dp" />
             </LinearLayout>
         </LinearLayout>
 

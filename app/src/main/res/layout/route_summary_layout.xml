@@ -34,8 +34,8 @@
 
         <ImageButton
             android:id="@+id/btn_expand_route"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
             android:background="@drawable/modern_round_icon_button"
             android:src="@android:drawable/ic_menu_more"
             android:contentDescription="Expand route details"
@@ -135,8 +135,7 @@
             <ImageView
                 android:layout_width="20dp"
                 android:layout_height="20dp"
-                android:src="@android:drawable/ic_menu_compass"
-                app:tint="@color/primary_color"
+                android:src="@drawable/ic_flag_marker_red"
                 android:layout_marginBottom="4dp" />
 
             <TextView

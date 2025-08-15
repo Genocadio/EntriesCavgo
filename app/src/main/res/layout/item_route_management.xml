@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_margin="4dp"
+    app:cardCornerRadius="8dp"
+    app:cardElevation="2dp"
+    app:cardUseCompatPadding="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <!-- Header Row -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="8dp">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/routeNameTextView"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Route Name"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/text_primary"
+                    android:layout_marginBottom="2dp" />
+
+                <TextView
+                    android:id="@+id/originDestinationTextView"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Origin → Destination"
+                    android:textSize="14sp"
+                    android:textColor="@color/text_secondary" />
+
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/routeTypeTextView"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="City Route"
+                android:textSize="11sp"
+                android:textColor="@android:color/white"
+                android:background="@drawable/bg_city_route_tag"
+                android:paddingHorizontal="8dp"
+                android:paddingVertical="4dp"
+                android:layout_marginStart="8dp" />
+
+        </LinearLayout>
+
+        <!-- Details Row -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="8dp">
+
+            <TextView
+                android:id="@+id/routeDetailsTextView"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="85.2 km • 2h 30min"
+                android:textSize="13sp"
+                android:textColor="@color/text_secondary"
+                android:drawableStart="@drawable/ic_route_small"
+                android:drawablePadding="4dp"
+                android:gravity="center_vertical" />
+
+            <TextView
+                android:id="@+id/routePriceTextView"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="RWF 15,000"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:textColor="@color/accent_color"
+                android:drawableStart="@drawable/ic_money_small"
+                android:drawablePadding="4dp"
+                android:gravity="center_vertical" />
+
+        </LinearLayout>
+
+        <!-- Waypoints Row -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="12dp">
+
+            <TextView
+                android:id="@+id/waypointsCountTextView"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="3 waypoints"
+                android:textSize="12sp"
+                android:textColor="@color/text_secondary"
+                android:drawableStart="@drawable/ic_waypoint_small"
+                android:drawablePadding="4dp"
+                android:gravity="center_vertical"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/createdDateTextView"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Created Jan 15, 2025 at 14:30"
+                android:textSize="11sp"
+                android:textColor="@color/text_hint" />
+
+        </LinearLayout>
+
+        <!-- Action Buttons -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="end">
+
+            <ImageButton
+                android:id="@+id/editButton"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@drawable/ic_edit"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Edit route"
+                android:layout_marginEnd="8dp"
+                app:tint="@color/primary_color" />
+
+            <ImageButton
+                android:id="@+id/deleteButton"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@drawable/ic_delete"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Delete route"
+                app:tint="@color/error" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+</com.google.android.material.card.MaterialCardView>

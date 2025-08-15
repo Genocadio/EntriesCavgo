@@ -15,14 +15,23 @@ import com.here.sdk.search.SearchOptions
 import com.here.sdk.search.SuggestCallback
 import com.here.sdk.search.Suggestion
 import com.here.sdk.search.TextQuery
+import com.gocavgo.entries.service.RemoteDataManager
+import com.gocavgo.entries.service.RemoteResult
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class SearchManager(private val context: Context) {
 
     private lateinit var searchEngine: SearchEngine
     private val TAG = SearchManager::class.java.simpleName
+    private val remoteDataManager = RemoteDataManager.getInstance()
+    private val searchScope = CoroutineScope(Dispatchers.Main)
 
     // Search related variables
     val suggestions = arrayListOf<Suggestion>()
+    var onDbPlaceSelected: ((DbPlace) -> Unit)? = null
     lateinit var suggestionsAdapter: ArrayAdapter<String>
     var isUserInput = true
 
@@ -30,10 +39,63 @@ class SearchManager(private val context: Context) {
     var onPlaceSelected: ((Place) -> Unit)? = null
     var onSearchError: ((String) -> Unit)? = null
     var onSuggestionsUpdated: ((List<String>) -> Unit)? = null
+    private val dbSearchResults = arrayListOf<DbPlace>()
+
 
     init {
         initializeSearchEngine()
         initializeSuggestionsAdapter()
+    }
+
+    fun performDatabaseSearch(query: String) {
+        Log.d(TAG, "Performing database search for: $query")
+
+        searchScope.launch {
+            try {
+                when (val result = remoteDataManager.getLocations(search = query, limit = 10)) {
+                    is RemoteResult.Success -> {
+                        val dbPlaces = result.data.data
+                        Log.d(TAG, "Database search returned ${dbPlaces.size} results")
+
+                        if (dbPlaces.isNotEmpty()) {
+                            // Convert DbPlace results to display format
+                            val suggestionTitles = dbPlaces.map { dbPlace ->
+                                val displayName = dbPlace.getName()
+                                val district = dbPlace.displayDistrict
+                                if (district != null) {
+                                    "$displayName - $district"
+                                } else {
+                                    displayName
+                                }
+                            }
+
+                            // Store DbPlaces in a way that can be retrieved by index
+                            updateDatabaseSuggestions(suggestionTitles, dbPlaces)
+
+                        } else {
+                            Log.d(TAG, "No database results found for: $query")
+                            clearSuggestions()
+                        }
+                    }
+                    is RemoteResult.Error -> {
+                        Log.e(TAG, "Database search error: ${result.message}")
+                        onSearchError?.invoke("Database search failed: ${result.message}")
+                        clearSuggestions()
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Exception during database search: ${e.message}", e)
+                onSearchError?.invoke("Database search error: ${e.message}")
+                clearSuggestions()
+            }
+        }
+    }
+
+    private fun updateDatabaseSuggestions(suggestionTitles: List<String>, dbPlaces: List<DbPlace>) {
+        dbSearchResults.clear()
+        dbSearchResults.addAll(dbPlaces)
+
+        updateSuggestions(suggestionTitles)
     }
 
     private fun initializeSearchEngine() {
@@ -72,31 +134,47 @@ class SearchManager(private val context: Context) {
 
             isUserInput = false
 
-            if (position < suggestions.size) {
+            // Check if we're in database search mode and have database results
+            if (dbSearchResults.isNotEmpty() && position < dbSearchResults.size) {
+                val selectedDbPlace = dbSearchResults[position]
+                val placeName = selectedDbPlace.getName()
+
+                Log.d(TAG, "Selected database place: $placeName ${selectedDbPlace.id}")
+                Log.d(TAG, "Selected database place ID: ${selectedDbPlace.id}")
+                searchAutoComplete.setText(placeName)
+
+                // Invoke database place selection callback
+                onDbPlaceSelected?.invoke(selectedDbPlace)
+
+                // Clear suggestions and dropdown
+                clearSuggestions()
+                searchAutoComplete.dismissDropDown()
+                Log.d(TAG, "Database place selected - suggestions cleared")
+
+            } else if (position < suggestions.size) {
+                // Original HERE SDK suggestion handling
                 val selectedSuggestion = suggestions[position]
                 val suggestionTitle = selectedSuggestion.title
 
-                Log.d(TAG, "Selected suggestion: $suggestionTitle")
-
+                Log.d(TAG, "Selected HERE suggestion: $suggestionTitle")
                 searchAutoComplete.setText(suggestionTitle)
 
-                // Handle place selection
                 selectedSuggestion.place?.let { place ->
                     place.geoCoordinates?.let { coordinates ->
-                        Log.d(TAG, "Place selected from suggestion: ${place.title} at $coordinates")
+                        Log.d(TAG, "Place selected from HERE suggestion: ${place.title} at $coordinates")
                         onPlaceSelected?.invoke(place)
                     }
                 } ?: run {
-                    Log.d(TAG, "No place in suggestion, performing text search")
+                    Log.d(TAG, "No place in HERE suggestion, performing text search")
                     performTextSearch(suggestionTitle, searchAutoComplete)
                 }
 
-                // Clear suggestions after successful selection
                 clearSuggestions()
                 searchAutoComplete.dismissDropDown()
-                Log.d(TAG, "Item selected - suggestions cleared and dropdown dismissed")
+                Log.d(TAG, "HERE suggestion selected - suggestions cleared")
+
             } else {
-                Log.w(TAG, "Invalid suggestion position: $position, suggestions size: ${suggestions.size}")
+                Log.w(TAG, "Invalid suggestion position: $position")
             }
 
             isUserInput = true
@@ -234,10 +312,10 @@ class SearchManager(private val context: Context) {
 
     fun clearSuggestions() {
         suggestions.clear()
+        dbSearchResults.clear()  // Add this line
         suggestionsAdapter.clear()
         suggestionsAdapter.notifyDataSetChanged()
     }
-
     fun showDropdown(searchAutoComplete: AutoCompleteTextView) {
         if (suggestionsAdapter.count > 0) {
             searchAutoComplete.showDropDown()

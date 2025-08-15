@@ -193,6 +193,8 @@ class MapController(
         }
     }
 
+
+
     fun loadMapScene(geoCoordinates: GeoCoordinates) {
         val mapScheme = getTimeBasedMapScheme()
         mapView.mapScene.loadScene(mapScheme) { mapError ->
@@ -217,6 +219,24 @@ class MapController(
         }
     }
 
+    /**
+     * Clear all markers including search markers and location indicators
+     */
+    fun clearAllMarkers() {
+        clearSearchMarkers() // Clear search result markers
+        clearLocationIndicators() // Clear location indicators
+    }
+
+    /**
+     * Clear all location indicators from the map
+     */
+    fun clearLocationIndicators() {
+        locationIndicatorList.forEach { locationIndicator ->
+            locationIndicator.disable()
+        }
+        locationIndicatorList.clear()
+        Log.d(TAG, "Cleared location indicators")
+    }
     private fun getTimeBasedSchemeIndex(): Int {
         val calendar = Calendar.getInstance()
         val hour = calendar.get(Calendar.HOUR_OF_DAY)
@@ -491,15 +511,33 @@ class MapController(
             val locationType = metadata?.getString("location_type") ?: "location"
             val oldCoordinates = marker.coordinates
 
-            // IMPORTANT: Call the callback BEFORE updating marker coordinates
+            Log.d(TAG, "moveMarkerToLocation called:")
+            Log.d(TAG, "  Marker: $markerTitle ($locationType)")
+            Log.d(TAG, "  Old coordinates: ${oldCoordinates.latitude}, ${oldCoordinates.longitude}")
+            Log.d(TAG, "  New coordinates: ${newCoordinates.latitude}, ${newCoordinates.longitude}")
+
+            // CRITICAL FIX: Call the callback BEFORE updating marker coordinates
             // This allows the callback to match old coordinates with route points
+            // The callback will update the DbPlace coordinates
+            Log.d(TAG, "Calling onMarkerMoved callback...")
             onMarkerMoved?.invoke(marker, newCoordinates)
 
-            // Update marker coordinates AFTER the callback has processed the route update
+            // IMPORTANT: Update marker coordinates AFTER the callback has processed the route update
+            Log.d(TAG, "Updating marker coordinates on map...")
             marker.coordinates = newCoordinates
+
+            // Update the metadata with new coordinates for reference
+            val updatedMetadata = marker.metadata ?: Metadata()
+            updatedMetadata.setDouble("current_lat", newCoordinates.latitude)
+            updatedMetadata.setDouble("current_lng", newCoordinates.longitude)
+            marker.metadata = updatedMetadata
+
+            Log.d(TAG, "Marker coordinates updated on map. Cancelling move mode...")
             cancelMarkerMove()
 
-            Log.d(TAG, "Marker '$markerTitle' ($locationType) moved from: ${oldCoordinates.latitude}, ${oldCoordinates.longitude} to: ${newCoordinates.latitude}, ${newCoordinates.longitude}")
+            Log.d(TAG, "Marker '$markerTitle' ($locationType) successfully moved from: ${oldCoordinates.latitude}, ${oldCoordinates.longitude} to: ${newCoordinates.latitude}, ${newCoordinates.longitude}")
+        } ?: run {
+            Log.w(TAG, "moveMarkerToLocation called but markerToMove is null")
         }
     }
 

@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <!-- Original Place Name (Read-only) -->
+    <com.google.android.material.textfield.TextInputLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="16dp"
+        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+        android:hint="Original Place Name"
+        app:boxStrokeColor="@color/text_hint"
+        app:hintTextColor="@color/text_hint">
+
+        <TextView
+            android:id="@+id/originalNameTextView"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:gravity="center_vertical"
+            android:text="Original place name from Google"
+            android:textSize="16sp"
+            android:textColor="@color/text_secondary"
+            android:paddingHorizontal="12dp"
+            android:background="@drawable/bg_readonly_input" />
+
+    </com.google.android.material.textfield.TextInputLayout>
+
+    <!-- Custom Name Input -->
+    <com.google.android.material.textfield.TextInputLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="16dp"
+        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+        android:hint="Custom Name (Optional)"
+        app:boxStrokeColor="@color/primary_color"
+        app:hintTextColor="@color/primary_color"
+        app:helperText="Leave empty to use original name"
+        app:helperTextTextColor="@color/text_hint">
+
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/customNameEditText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="textCapWords"
+            android:maxLines="1"
+            android:textSize="16sp"
+            android:textColor="@color/text_primary" />
+
+    </com.google.android.material.textfield.TextInputLayout>
+
+    <!-- District Input -->
+    <com.google.android.material.textfield.TextInputLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="16dp"
+        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+        android:hint="District *"
+        app:boxStrokeColor="@color/primary_color"
+        app:hintTextColor="@color/primary_color"
+        app:helperText="Required field"
+        app:helperTextTextColor="@color/text_hint">
+
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/districtEditText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="textCapWords"
+            android:maxLines="1"
+            android:textSize="16sp"
+            android:textColor="@color/text_primary" />
+
+    </com.google.android.material.textfield.TextInputLayout>
+
+    <!-- Province Display (Auto-set) -->
+    <com.google.android.material.textfield.TextInputLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="8dp"
+        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+        android:hint="Province"
+        app:boxStrokeColor="@color/text_hint"
+        app:hintTextColor="@color/text_hint"
+        app:helperText="Auto-set based on district"
+        app:helperTextTextColor="@color/accent_color">
+
+        <TextView
+            android:id="@+id/provinceTextView"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:gravity="center_vertical"
+            android:text="Auto-set based on district"
+            android:textSize="16sp"
+            android:textColor="@color/accent_color"
+            android:paddingHorizontal="12dp"
+            android:background="@drawable/bg_readonly_input"
+            android:drawableStart="@drawable/ic_auto_awesome"
+            android:drawablePadding="8dp"
+            app:drawableTint="@color/accent_color" />
+
+    </com.google.android.material.textfield.TextInputLayout>
+
+    <!-- Info Note -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:padding="12dp"
+        android:background="@drawable/bg_info_note"
+        android:layout_marginTop="8dp">
+
+        <ImageView
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:src="@drawable/ic_info"
+            android:layout_marginEnd="8dp"
+            app:tint="@color/info_color" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="The province will be automatically determined based on the district you enter. Make sure to enter a valid Rwandan district."
+            android:textSize="12sp"
+            android:textColor="@color/info_text_color"
+            android:lineSpacingMultiplier="1.2" />
+
+    </LinearLayout>
+
+</LinearLayout>

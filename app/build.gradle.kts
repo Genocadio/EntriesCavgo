@@ -5,6 +5,7 @@ plugins {
     id("com.google.devtools.ksp")
     id("com.google.dagger.hilt.android")
     id("com.google.android.libraries.mapsplatform.secrets-gradle-plugin")
+    id("org.jetbrains.kotlin.plugin.serialization") version "2.1.0"
 
 }
 
@@ -16,15 +17,30 @@ android {
         applicationId = "com.gocavgo.entries"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
+    signingConfigs {
+        create("release") {
+            storeFile = file("my-release-key.jks") // Path to your keystore file
+            storePassword = "Cadio*11."// Configure your signing config here if needed
+            keyAlias = "my-key-alias"
+            keyPassword = "Cadio*11."// keyPassword = "your_key_password"
+            // storeFile = file("path/to/your/keystore.jks")
+            // storePassword = "your_store_password"
+        }
+
+    }
+
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isDebuggable = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -64,6 +80,13 @@ dependencies {
         "include" to listOf("*.aar", "*.jar"),
         "exclude" to listOf("*mock*.jar")
     )))
+
+    // OkHttp for HTTP requests
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
+
+    // Kotlinx Serialization for JSON handling
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
 
     coreLibraryDesugaring(libs.desugar.jdk.libs)
     implementation(libs.androidx.room.runtime)

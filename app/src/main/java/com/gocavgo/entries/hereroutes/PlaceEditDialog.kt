@@ -73,7 +73,7 @@ class PlaceEditDialog : DialogFragment() {
         dbPlace?.let { place ->
                 // Set original place data
                 tvOriginalName.text = place.placeName
-            tvOriginalAddress.text = place.address
+            tvOriginalAddress.text = place.customDistrict
 
             // Set current custom values if they exist
             etCustomName.setText(place.customName ?: "")
@@ -130,27 +130,44 @@ class PlaceEditDialog : DialogFragment() {
 
     private fun saveChanges() {
         dbPlace?.let { place ->
-                val customName = etCustomName.text?.toString()?.trim()
+            val customName = etCustomName.text?.toString()?.trim()
             val customDistrict = spinnerDistrict.text?.toString()?.trim()
 
             // Validate district selection
             val validDistrict = if (!customDistrict.isNullOrBlank() &&
-                    DbPlace.RWANDAN_DISTRICTS.contains(customDistrict)) {
+                DbPlace.RWANDAN_DISTRICTS.contains(customDistrict)) {
                 customDistrict
             } else {
                 null
             }
 
             val updatedPlace = place.withCustomData(
-                    customName = if (customName.isNullOrBlank()) null else customName,
-                    customDistrict = validDistrict
+                customName = if (customName.isNullOrBlank()) null else customName,
+                customDistrict = validDistrict
             )
+
+            // FIXED: Better logic for setting edited flag
+            // Check if any changes were made (custom data OR coordinates)
+            val hasCustomDataChanges = (updatedPlace.customName != place.customName ||
+                    updatedPlace.customDistrict != place.customDistrict)
+
+            val hasCoordinateChanges = place.hasMovedCoordinates
+
+            // Set edited flag if there are any changes AND the place has an ID
+            if ((hasCustomDataChanges || hasCoordinateChanges) && !updatedPlace.id.isNullOrBlank()) {
+                Log.d(TAG, "Setting edited=true because:")
+                Log.d(TAG, "  Custom data changed: $hasCustomDataChanges")
+                Log.d(TAG, "  Coordinates changed: $hasCoordinateChanges")
+                Log.d(TAG, "  Place has ID: ${updatedPlace.id}")
+                updatedPlace.setEdited(true)
+            }
 
             Log.d(TAG, "Saving place changes:")
             Log.d(TAG, "  Original name: ${place.placeName}")
             Log.d(TAG, "  Custom name: ${updatedPlace.customName}")
             Log.d(TAG, "  Custom district: ${updatedPlace.customDistrict}")
             Log.d(TAG, "  Display name: ${updatedPlace.getName()}")
+            Log.d(TAG, "  Edited flag: ${updatedPlace.edited}")
 
             onPlaceUpdated?.invoke(updatedPlace)
             dismiss()
