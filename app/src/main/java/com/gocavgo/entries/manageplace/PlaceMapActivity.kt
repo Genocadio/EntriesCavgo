@@ -158,24 +158,26 @@ class PlaceMapActivity : AppCompatActivity() {
             languageCode = com.here.sdk.core.LanguageCode.EN_GB
             maxItems = 1
         }
-        reverseEngine.searchByCoordinates(coords, options, SearchCallback { error, list ->
-            val first = list?.firstOrNull()
-            if (error == null && first != null) {
-                val newTitle = first.title.ifBlank { first.address.addressText }
-                dbPlace.setPlaceName(newTitle)
-                dbPlace.updateCoordinates(coords.latitude, coords.longitude)
-                // We do not allow district edit here per requirements
+        reverseEngine.searchByCoordinates(coords, options, object : com.here.sdk.search.SearchCallback {
+            override fun onSearchCompleted(error: com.here.sdk.search.SearchError?, list: List<com.here.sdk.search.Place>?) {
+                val first = list?.firstOrNull()
+                if (error == null && first != null) {
+                    val newTitle = first.title.ifBlank { first.address.addressText }
+                    dbPlace.setPlaceName(newTitle)
+                    dbPlace.updateCoordinates(coords.latitude, coords.longitude)
+                    // We do not allow district edit here per requirements
 
-                // Update UI labels
-                runOnUiThread {
-                    findViewById<android.widget.TextView>(R.id.tv_place_name).text = dbPlace.placeName
-                    findViewById<android.widget.TextView>(R.id.tv_coordinates).text = "${"%.5f".format(coords.latitude)}, ${"%.5f".format(coords.longitude)}"
+                    // Update UI labels
+                    runOnUiThread {
+                        findViewById<android.widget.TextView>(R.id.tv_place_name).text = dbPlace.placeName
+                        findViewById<android.widget.TextView>(R.id.tv_coordinates).text = "${"%.5f".format(coords.latitude)}, ${"%.5f".format(coords.longitude)}"
+                    }
+                    onDone?.let { it() }
+                } else {
+                    // Still update coordinates change even without reverse geocode
+                    dbPlace.updateCoordinates(coords.latitude, coords.longitude)
+                    onDone?.let { it() }
                 }
-                onDone?.let { it() }
-            } else {
-                // Still update coordinates change even without reverse geocode
-                dbPlace.updateCoordinates(coords.latitude, coords.longitude)
-                onDone?.let { it() }
             }
         })
     }
