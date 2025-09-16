@@ -438,7 +438,7 @@ class RouteManagementActivity : AppCompatActivity() {
                 customDistrict = waypoint.location.district
             ).copy(id = waypoint.location.id.toString())
 
-            WaypointWithPrice(dbPlace = dbPlace, price = waypoint.price)
+            WaypointWithPrice(dbPlace = dbPlace.copy(isPassThrough = waypoint.is_pass_through), price = waypoint.price ?: 0.0)
         }
 
         // Convert distance and duration back to string format

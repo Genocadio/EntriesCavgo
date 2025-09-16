@@ -420,7 +420,7 @@ class UIController(
         // Store existing values before clearing
         val existingValues = waypointPriceInputs.map { it.text?.toString() ?: "" }
 
-        // Calculate how many new inputs we need to add
+        // Rebuild inputs and toggles to reflect current flags
         val currentInputCount = waypointPriceInputs.size
         val requiredInputCount = waypoints.size
 
@@ -429,8 +429,8 @@ class UIController(
                 // Add new inputs for additional waypoints
                 for (index in currentInputCount until requiredInputCount) {
                     val dbPlace = waypoints[index]
-                    val inputLayout = createWaypointPriceInput(dbPlace, index)
-                    waypointPriceInputsContainer.addView(inputLayout)
+                    val row = createWaypointRow(dbPlace, index)
+                    waypointPriceInputsContainer.addView(row)
                 }
             }
             requiredInputCount < currentInputCount -> {
@@ -446,10 +446,13 @@ class UIController(
             else -> {
                 // Update existing input labels to match current waypoints
                 waypoints.forEachIndexed { index, dbPlace ->
-                    if (index < waypointPriceInputs.size) {
-                        val inputLayout = waypointPriceInputsContainer.getChildAt(index) as? com.google.android.material.textfield.TextInputLayout
-                        inputLayout?.hint = "Price for ${dbPlace.getName()}"
-                    }
+                    val row = waypointPriceInputsContainer.getChildAt(index) as? LinearLayout
+                    val inputLayout = row?.findViewWithTag<com.google.android.material.textfield.TextInputLayout>("price_input_$index")
+                    inputLayout?.hint = "Price for ${dbPlace.getName()}"
+                    val toggle = row?.findViewWithTag<androidx.appcompat.widget.SwitchCompat>("passthrough_toggle_$index")
+                    toggle?.isChecked = dbPlace.isPassThrough
+                    // Hide price for pass-through
+                    inputLayout?.visibility = if (dbPlace.isPassThrough) View.GONE else View.VISIBLE
                 }
             }
         }
@@ -462,17 +465,40 @@ class UIController(
         }
     }
 
-    private fun createWaypointPriceInput(dbPlace: DbPlace, index: Int): com.google.android.material.textfield.TextInputLayout {
-        val inputLayout = com.google.android.material.textfield.TextInputLayout(
-            context, null, com.google.android.material.R.attr.textInputOutlinedStyle
-        ).apply {
+    private fun createWaypointRow(dbPlace: DbPlace, index: Int): LinearLayout {
+        val row = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply {
                 bottomMargin = 16
             }
+        }
+
+        val toggle = androidx.appcompat.widget.SwitchCompat(context).apply {
+            tag = "passthrough_toggle_$index"
+            text = "Pass-through"
+            isChecked = dbPlace.isPassThrough
+            setOnCheckedChangeListener { _, isChecked ->
+                dbPlace.isPassThrough = isChecked
+                // Hide/show price input
+                val input = row.findViewWithTag<com.google.android.material.textfield.TextInputLayout>("price_input_$index")
+                input?.visibility = if (isChecked) View.GONE else View.VISIBLE
+                // Route recompute handled by ManageRoute when route changes; here we can signal visually only
+            }
+        }
+
+        val inputLayout = com.google.android.material.textfield.TextInputLayout(
+            context, null, com.google.android.material.R.attr.textInputOutlinedStyle
+        ).apply {
+            tag = "price_input_$index"
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
             hint = "Price for ${dbPlace.getName()}"
+            visibility = if (dbPlace.isPassThrough) View.GONE else View.VISIBLE
         }
 
         val editText = com.google.android.material.textfield.TextInputEditText(context).apply {
@@ -487,7 +513,9 @@ class UIController(
         inputLayout.addView(editText)
         waypointPriceInputs.add(editText)
 
-        return inputLayout
+        row.addView(toggle)
+        row.addView(inputLayout)
+        return row
     }
 
     @SuppressLint("DefaultLocale")

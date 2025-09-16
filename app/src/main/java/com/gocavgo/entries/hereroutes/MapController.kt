@@ -47,6 +47,7 @@ class MapController(
     var onLocationReceived: ((GeoCoordinates) -> Unit)? = null
     var onMarkerActionRequested: ((String, MapMarker) -> Unit)? = null
     var onMarkerMoved: ((MapMarker, GeoCoordinates) -> Unit)? = null
+    var onMapLongPress: ((GeoCoordinates) -> Unit)? = null
 
     // Cache for converted marker images to avoid repeated conversions
     private val markerImageCache = mutableMapOf<Int, MapImage>()
@@ -116,6 +117,10 @@ class MapController(
                 if (isMovingMarker && markerToMove != null) {
                     geoCoordinates?.let { newCoordinates ->
                         moveMarkerToLocation(newCoordinates)
+                    }
+                } else {
+                    geoCoordinates?.let { coords ->
+                        onMapLongPress?.invoke(coords)
                     }
                 }
             }
@@ -259,7 +264,7 @@ class MapController(
      * @param dbPlace DbPlace object containing place information
      * @param markerType Type of marker: "origin", "destination", "waypoint"
      */
-    fun addSearchMarker(coordinates: GeoCoordinates, dbPlace: DbPlace, markerType: String = "waypoint") {
+    fun addSearchMarker(coordinates: GeoCoordinates, dbPlace: DbPlace, markerType: String = "waypoint"): MapMarker {
         try {
             // Select appropriate marker image based on type
             val markerDrawableRes = when (markerType.lowercase()) {
@@ -286,15 +291,17 @@ class MapController(
             searchMarkers.add(mapMarker)
 
             Log.d(TAG, "Successfully added $markerType marker: '$markerTitle' at $coordinates")
+            return mapMarker
         } catch (e: Exception) {
             Log.e(TAG, "Failed to add search marker: ${e.message}")
+            throw e
         }
     }
 
     /**
      * Legacy method for backward compatibility - now uses DbPlace and vector drawable conversion
      */
-    fun addSearchMarker(coordinates: GeoCoordinates, title: String) {
+    fun addSearchMarker(coordinates: GeoCoordinates, title: String): MapMarker {
         try {
             // Create MapImage from vector drawable with proper scaling
             val mapImage = createMapImageFromVectorDrawable(R.drawable.ic_map_marker_blue, 32)
@@ -310,8 +317,10 @@ class MapController(
             searchMarkers.add(mapMarker)
 
             Log.d(TAG, "Successfully added legacy marker: '$title' at $coordinates")
+            return mapMarker
         } catch (e: Exception) {
             Log.e(TAG, "Failed to add legacy search marker: ${e.message}")
+            throw e
         }
     }
 
@@ -412,7 +421,9 @@ class MapController(
         val markerTitle = metadata?.getString("marker_title") ?: "Unknown Location"
         val locationType = metadata?.getString("location_type") ?: "waypoint"
 
-        val options = arrayOf("Remove", "Move", "Edit", "Save")
+        val isWaypoint = (locationType == "waypoint")
+        val options = if (isWaypoint) arrayOf("Remove", "Move", "Edit", "Save", "Toggle Pass-Through")
+            else arrayOf("Remove", "Move", "Edit", "Save")
 
         AlertDialog.Builder(context)
             .setTitle("$locationType: $markerTitle")
@@ -422,6 +433,7 @@ class MapController(
                     1 -> onMarkerActionRequested?.invoke("move", marker)
                     2 -> onMarkerActionRequested?.invoke("edit", marker)
                     3 -> onMarkerActionRequested?.invoke("save", marker)
+                    4 -> if (isWaypoint) onMarkerActionRequested?.invoke("toggle_passthrough", marker)
                 }
                 dialog.dismiss()
             }

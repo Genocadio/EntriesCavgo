@@ -20,5 +20,6 @@ data class SaveRouteRequest(
 data class SaveRouteWaypoint(
     val location_id: Int,
     val order: Int,
-    val price: Double
+    val price: Double?,
+    val is_pass_through: Boolean
 )

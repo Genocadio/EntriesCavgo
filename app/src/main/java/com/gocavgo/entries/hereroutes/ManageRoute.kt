@@ -47,6 +47,7 @@ class ManageRoute : AppCompatActivity() {
     private lateinit var clearSearchButton: ImageButton
     private lateinit var myLocationFab: com.google.android.material.floatingactionbutton.FloatingActionButton
     private lateinit var searchEngine: SearchEngine
+    private lateinit var reverseGeocodeEngine: SearchEngine
 
     // UI containers
     private lateinit var bottomContainer: LinearLayout
@@ -150,6 +151,38 @@ class ManageRoute : AppCompatActivity() {
                 mapController.loadMapScene(geoCoordinates)
             }
         }
+    }
+
+    private fun handleTogglePassThrough(marker: MapMarker) {
+        val coords = marker.coordinates
+        val dbPlace = findDbPlaceForCoordinates(coords.latitude, coords.longitude)
+        if (dbPlace == null) {
+            CustomToast.showWarning(this, "No waypoint found to toggle")
+            return
+        }
+
+        // Toggle flag
+        dbPlace.isPassThrough = !dbPlace.isPassThrough
+
+        // Update UI hint in metadata title
+        val updatedMetadata = marker.metadata ?: Metadata()
+        val baseTitle = dbPlace.getName()
+        updatedMetadata.setString("marker_title", baseTitle)
+        marker.metadata = updatedMetadata
+
+        // Recalculate route with updated waypoint type if applicable
+        val waypointIndex = routingExample.findWaypointIndex(coords)
+        if (waypointIndex >= 0) {
+            // Force recalculation by triggering calculateRouteWithWaypoints again.
+            // updateWaypoint already triggers, but we need to persist type. The RoutingExample reads flags only when building waypoints.
+            // Easiest: temporarily nudge waypoint position by 0 and call calculate.
+            routingExample.calculateRouteWithWaypoints()
+        } else {
+            // If it's origin/destination, ignore
+        }
+
+        val modeText = if (dbPlace.isPassThrough) "Pass-Through" else "Stopover"
+        CustomToast.showInfo(this, "Waypoint set to $modeText")
     }
 
     private fun initializeViews() {
@@ -567,6 +600,7 @@ class ManageRoute : AppCompatActivity() {
                 "move" -> mapController.startMarkerMove(marker)
                 "edit" -> handleMarkerEdit(marker)
                 "save" -> mapController.saveMarker(marker)
+                "toggle_passthrough" -> handleTogglePassThrough(marker)
             }
         }
 
@@ -614,10 +648,136 @@ class ManageRoute : AppCompatActivity() {
                 Toast.makeText(this, statusMessage, Toast.LENGTH_SHORT).show()
                 Log.d(TAG, "Successfully updated DbPlace: $statusMessage")
                 Log.d(TAG, "FINAL - Edited flag: ${dbPlace.edited}")
+
+                // Reverse geocode to refresh place name/address after move (dedicated engine)
+                val options = com.here.sdk.search.SearchOptions().apply {
+                    languageCode = com.here.sdk.core.LanguageCode.EN_GB
+                    maxItems = 1
+                }
+                reverseGeocodeEngine.searchByCoordinates(newCoordinates, options, object : com.here.sdk.search.SearchCallback {
+                    override fun onSearchCompleted(searchError: com.here.sdk.search.SearchError?, list: List<com.here.sdk.search.Place>?) {
+                        if (searchError == null) {
+                            val place = list?.firstOrNull()
+                            place?.let {
+                                val updatedTitle = it.title.ifBlank{ it.address.addressText  }
+                                dbPlace.setPlaceName(updatedTitle)
+                                dbPlace.setAddress(it.address.addressText)
+
+                                val updatedMetadata = marker.metadata ?: com.here.sdk.core.Metadata()
+                                updatedMetadata.setString("marker_title", dbPlace.getName())
+                                marker.metadata = updatedMetadata
+
+                                uiController.showPlaceDetails(it, dbPlace)
+                            }
+                        }
+                    }
+                })
             } else {
                 Log.w(TAG, "Could not find DbPlace for old coordinates: ${oldCoordinates.latitude}, ${oldCoordinates.longitude}")
                 Toast.makeText(this, "Warning: Could not update place coordinates", Toast.LENGTH_SHORT).show()
             }
+        }
+
+        // Handle long press on map to set origin / destination / waypoints
+        mapController.onMapLongPress = { coords ->
+            Log.d(TAG, "Handling long press at: ${coords.latitude}, ${coords.longitude}")
+
+            // Decide target based on current state
+            val targetType = when {
+                selectedOrigin == null -> "origin"
+                selectedDestination == null -> "destination"
+                isSelectingDestination -> "destination"
+                isSelectingWaypoint || routingExample.hasActiveRoute() -> "waypoint"
+                else -> "destination"
+            }
+
+            // Sync selection flags to target
+            when (targetType) {
+                "origin" -> {
+                    isSelectingOrigin = true
+                    isSelectingDestination = false
+                    isSelectingWaypoint = false
+                }
+                "destination" -> {
+                    isSelectingOrigin = false
+                    isSelectingDestination = true
+                    isSelectingWaypoint = false
+                    uiController.switchToDestinationSelection()
+                }
+                else -> {
+                    isSelectingOrigin = false
+                    isSelectingDestination = false
+                    isSelectingWaypoint = true
+                    uiController.switchToWaypointSelection()
+                }
+            }
+
+            val displayName = when (targetType) {
+                "origin" -> "Origin (${"%.5f".format(coords.latitude)}, ${"%.5f".format(coords.longitude)})"
+                "destination" -> "Destination (${"%.5f".format(coords.latitude)}, ${"%.5f".format(coords.longitude)})"
+                else -> "Waypoint (${"%.5f".format(coords.latitude)}, ${"%.5f".format(coords.longitude)})"
+            }
+
+            val dbPlace = DbPlace.create(
+                placeName = displayName,
+                latitude = coords.latitude,
+                longitude = coords.longitude,
+                isPassThrough = true
+            )
+
+            // Apply selection via existing handler (this triggers routing where appropriate)
+            handleLocationSelection(coords, displayName, dbPlace)
+
+            // Add marker and move camera
+            val marker = mapController.addSearchMarker(coords, dbPlace, targetType)
+            mapController.moveMapToLocation(coords)
+
+            // Reverse geocode for proper title/address (dedicated engine)
+            val options = com.here.sdk.search.SearchOptions().apply {
+                languageCode = com.here.sdk.core.LanguageCode.EN_GB
+                maxItems = 1
+            }
+            reverseGeocodeEngine.searchByCoordinates(coords, options, object : com.here.sdk.search.SearchCallback {
+                override fun onSearchCompleted(searchError: com.here.sdk.search.SearchError?, list: List<com.here.sdk.search.Place>?) {
+                    if (searchError == null) {
+                        val place = list?.firstOrNull()
+                        place?.let {
+                            val updatedTitle = it.title.ifBlank{ it.address.addressText }
+                            dbPlace.setPlaceName(updatedTitle)
+                            dbPlace.setAddress(it.address.addressText)
+
+                            val updatedMetadata = marker.metadata ?: com.here.sdk.core.Metadata()
+                            updatedMetadata.setString("marker_title", dbPlace.getName())
+                            marker.metadata = updatedMetadata
+
+                            uiController.showPlaceDetails(it, dbPlace)
+                        }
+                    }
+                }
+            })
+
+            // Advance selection automatically: after origin -> destination, after destination -> waypoint
+            when (targetType) {
+                "origin" -> {
+                    isSelectingOrigin = false
+                    isSelectingDestination = true
+                    isSelectingWaypoint = false
+                    uiController.switchToDestinationSelection()
+                }
+                "destination" -> {
+                    isSelectingOrigin = false
+                    isSelectingDestination = false
+                    isSelectingWaypoint = true
+                    uiController.switchToWaypointSelection()
+                }
+            }
+
+            // Update UI details (will be refined by reverse geocode callback if it returns)
+            uiController.clearSearchState()
+            uiController.hideSearchOverlay()
+            uiController.showPlaceDetails(null, dbPlace)
+
+            Log.d(TAG, "Long press set $targetType: ${dbPlace.getName()}")
         }
     }
 
@@ -1083,6 +1243,7 @@ class ManageRoute : AppCompatActivity() {
     private fun initializeSearchEngine() {
         try {
             searchEngine = SearchEngine()
+            reverseGeocodeEngine = SearchEngine()
         } catch (e: InstantiationErrorException) {
             throw RuntimeException("Initialization of SearchEngine failed: " + e.error.name)
         }

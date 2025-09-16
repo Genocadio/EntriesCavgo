@@ -52,6 +52,7 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import com.here.sdk.routing.RouteOptions
 import com.here.sdk.routing.RouteHandle
+import com.here.sdk.routing.WaypointType
 
 class RoutingExample(private val context: Context, private val mapView: MapView) {
 
@@ -63,6 +64,7 @@ class RoutingExample(private val context: Context, private val mapView: MapView)
     private var originCoordinates: GeoCoordinates? = null
     private var destinationCoordinates: GeoCoordinates? = null
     private val waypointsList = arrayListOf<GeoCoordinates>()
+    private val waypointPassThroughFlags = arrayListOf<Boolean>()
     private var currentRouteHandle: String? = null
 
     private var trafficDisabled = false
@@ -105,13 +107,14 @@ class RoutingExample(private val context: Context, private val mapView: MapView)
     }
 
     // New method to add waypoint between origin and destination
-    fun addWaypoint(coordinates: GeoCoordinates) {
+    fun addWaypoint(coordinates: GeoCoordinates, isPassThrough: Boolean = false) {
         if (originCoordinates == null || destinationCoordinates == null) {
             showDialog("Error", "Please set origin and destination first.")
             return
         }
 
         waypointsList.add(coordinates)
+        waypointPassThroughFlags.add(isPassThrough)
         Log.d(TAG, "Waypoint added: ${coordinates.latitude}, ${coordinates.longitude}")
         calculateRouteWithWaypoints()
     }
@@ -157,6 +160,7 @@ class RoutingExample(private val context: Context, private val mapView: MapView)
     fun removeWaypoint(index: Int) {
         if (index >= 0 && index < waypointsList.size) {
             val removed = waypointsList.removeAt(index)
+            waypointPassThroughFlags.removeAt(index)
             Log.d(TAG, "Waypoint removed: ${removed.latitude}, ${removed.longitude}")
 
             if (originCoordinates != null && destinationCoordinates != null) {
@@ -182,10 +186,17 @@ class RoutingExample(private val context: Context, private val mapView: MapView)
         val waypoints = arrayListOf<Waypoint>()
         waypoints.add(Waypoint(origin))
 
-        // Add intermediate waypoints
-        waypointsList.forEach { coordinates ->
-            waypoints.add(Waypoint(coordinates))
-            Log.d(TAG, "Added waypoint: ${coordinates.latitude}, ${coordinates.longitude}")
+        // Add intermediate waypoints with types
+        waypointsList.forEachIndexed { index, coordinates ->
+            val wp = Waypoint(coordinates)
+            val passThrough = waypointPassThroughFlags.getOrNull(index) ?: false
+            if (passThrough) {
+                wp.type = WaypointType.PASS_THROUGH
+            } else {
+                wp.type = WaypointType.STOPOVER
+            }
+            waypoints.add(wp)
+            Log.d(TAG, "Added waypoint: ${coordinates.latitude}, ${coordinates.longitude}, passThrough=$passThrough")
         }
 
         waypoints.add(Waypoint(destination))
@@ -201,6 +212,7 @@ class RoutingExample(private val context: Context, private val mapView: MapView)
         originCoordinates = null
         destinationCoordinates = null
         waypointsList.clear()
+        waypointPassThroughFlags.clear()
         currentRouteHandle = null
 
         // Clear the visual route from map
@@ -609,6 +621,7 @@ class RoutingExample(private val context: Context, private val mapView: MapView)
     fun removeWaypointAndRecalculate(index: Int) {
         if (index >= 0 && index < waypointsList.size) {
             val removed = waypointsList.removeAt(index)
+            waypointPassThroughFlags.removeAt(index)
             Log.d(TAG, "Waypoint removed at index $index: ${removed.latitude}, ${removed.longitude}")
             Log.d(TAG, "Remaining waypoints: ${waypointsList.size}")
 

@@ -580,7 +580,8 @@ class RemoteDataManager {
                         SaveRouteWaypoint(
                             location_id = waypoint.dbPlace.id!!.toInt(),
                             order = index + 1,
-                            price = waypoint.price
+                            price = if (waypoint.dbPlace.isPassThrough) null else waypoint.price,
+                            is_pass_through = waypoint.dbPlace.isPassThrough
                         )
                     }
                 )
@@ -845,7 +846,8 @@ class RemoteDataManager {
                         SaveRouteWaypoint(
                             location_id = waypoint.dbPlace.id!!.toInt(),
                             order = index + 1,
-                            price = waypoint.price
+                            price = if (waypoint.dbPlace.isPassThrough) null else waypoint.price,
+                            is_pass_through = waypoint.dbPlace.isPassThrough
                         )
                     }
                 )

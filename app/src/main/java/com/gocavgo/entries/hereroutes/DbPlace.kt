@@ -24,6 +24,7 @@ data class DbPlace(
     // Custom user fields
     var customName: String? = null,
     var customDistrict: String? = null,
+    var isPassThrough: Boolean = false,
     var id: String? = null, // Optional custom ID
     var code: String? = null, // Optional custom code
 
@@ -191,6 +192,7 @@ data class DbPlace(
             _address = _address,
             customName = customName,
             customDistrict = customDistrict,
+            isPassThrough = isPassThrough,
             id = id,
             code = code,
             _currentLatitude = _currentLatitude,     // Keep current coordinates
@@ -257,6 +259,7 @@ data class DbPlace(
             customName = customName,
             _edited = _edited,
             customDistrict = customDistrict,
+            isPassThrough = isPassThrough,
             id = id,
             code = code,
             _currentLatitude = _currentLatitude,     // Maintain current coordinates
@@ -496,7 +499,8 @@ data class DbPlace(
             areaType: String? = null,
             address: String? = null,
             customName: String? = null,
-            customDistrict: String? = null
+            customDistrict: String? = null,
+            isPassThrough: Boolean = false
         ): DbPlace {
             return DbPlace(
                 _placeName = placeName,
@@ -508,6 +512,7 @@ data class DbPlace(
                 _address = address,
                 customName = customName,
                 customDistrict = customDistrict,
+                isPassThrough = isPassThrough,
                 _currentLatitude = latitude,  // Initialize current to original
                 _currentLongitude = longitude // Initialize current to original
             )

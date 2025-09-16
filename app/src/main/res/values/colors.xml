@@ -38,6 +38,7 @@
 
     <color name="card_background_light">#F8F9FA</color>
     <color name="warning_color">#FF9800</color>
+    <color name="success_color">#4CAF50</color>
 
     <!-- Info colors -->
     <color name="info_color">#2196F3</color>

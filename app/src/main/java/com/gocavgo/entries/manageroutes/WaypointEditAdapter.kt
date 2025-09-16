@@ -52,8 +52,16 @@ override fun onBindViewHolder(holder: WaypointViewHolder, @SuppressLint("Recycle
         }
         locationDetailsTextView.text = if (details.isNotBlank()) details else "Location details"
 
-        // Set current price
-        priceEditText.setText(waypoint.price.toString())
+        // Set current price; hide/disable when pass-through
+        if (waypoint.is_pass_through) {
+            priceEditText.setText("")
+            priceEditText.hint = "Pass-through"
+            priceEditText.isEnabled = false
+        } else {
+            priceEditText.isEnabled = true
+            priceEditText.hint = "Price"
+            priceEditText.setText(waypoint.price?.toString() ?: "")
+        }
 
         // Remove existing text watcher to prevent multiple listeners
         priceEditText.tag?.let { tag ->
@@ -62,17 +70,18 @@ override fun onBindViewHolder(holder: WaypointViewHolder, @SuppressLint("Recycle
             }
         }
 
-        // Add text watcher for price changes
+        // Add text watcher for price changes (skip for pass-through)
         val textWatcher = object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
 
             override fun afterTextChanged(s: Editable?) {
+                if (waypoint.is_pass_through) return
                 val newPriceText = s?.toString()?.trim() ?: ""
                 if (newPriceText.isNotEmpty()) {
                     try {
                         val newPrice = newPriceText.toDouble()
-                        if (newPrice != waypoint.price) {
+                        if (waypoint.price == null || newPrice != waypoint.price) {
                             waypoints[adapterPosition].price = newPrice
                             onPriceChanged(adapterPosition, newPrice)
                         }
