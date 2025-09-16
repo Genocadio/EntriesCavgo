@@ -25,6 +25,9 @@
         <activity android:name=".manageplace.PlaceManagementActivity"
             android:exported="false"
             android:theme="@style/Theme.Entries" />
+        <activity android:name=".manageplace.PlaceMapActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Entries" />
         <activity
             android:name=".hereroutes.ManageRoute"
             android:exported="false"

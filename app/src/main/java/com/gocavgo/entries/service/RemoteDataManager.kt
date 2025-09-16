@@ -156,7 +156,7 @@ class RemoteDataManager {
     suspend fun updatePlace(placeId: String, dbPlace: DbPlace): RemoteResult<SavePlaceResponse> {
         Log.d(TAG, "=== UPDATING PLACE TO REMOTE ===")
         Log.d(TAG, "Place details: ${dbPlace.placeName}, ${dbPlace.latitude}, ${dbPlace.longitude}, ID: $placeId")
-        return withContext(Dispatchers.IO) {
+        return withContext(Dispatchers.IO)                                          {
             try {
                 // Create request payload with ID
                 val updateRequest = SavePlaceRequest(
@@ -207,6 +207,53 @@ class RemoteDataManager {
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to update place: ${e.message}", e)
                 RemoteResult.Error("Failed to update place: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * Update an existing waypoint (location) using a ready SavePlaceRequest payload
+     */
+    suspend fun updateWaypoint(waypointId: Int, updateRequest: SavePlaceRequest): RemoteResult<SavePlaceResponse> {
+        Log.d(TAG, "=== UPDATING WAYPOINT TO REMOTE ===")
+        Log.d(TAG, "Waypoint ID: $waypointId")
+        return withContext(Dispatchers.IO) {
+            try {
+                val jsonBody = json.encodeToString(updateRequest)
+                Log.d(TAG, "Update waypoint request payload: $jsonBody")
+
+                val requestBody = jsonBody.toRequestBody("application/json".toMediaType())
+                val request = Request.Builder()
+                    .url("${BASE_URL}locations/$waypointId")
+                    .put(requestBody)
+                    .addHeader("Content-Type", "application/json")
+                    .addHeader("Accept", "application/json")
+                    .build()
+
+                val response = httpClient.newCall(request).execute()
+
+                response.use { resp ->
+                    if (resp.isSuccessful) {
+                        val responseBody = resp.body?.string() ?: ""
+                        Log.d(TAG, "Update waypoint response: $responseBody")
+
+                        val saveResponse = json.decodeFromString<SavePlaceResponse>(responseBody)
+                        Log.d(TAG, "Waypoint updated successfully with ID: ${saveResponse.id}")
+                        Log.d(TAG, "===============================")
+
+                        RemoteResult.Success(saveResponse)
+                    } else {
+                        val errorBody = resp.body?.string() ?: "Unknown error"
+                        Log.e(TAG, "Failed to update waypoint. Response code: ${resp.code}, Error: $errorBody")
+                        RemoteResult.Error("Failed to update waypoint: HTTP ${resp.code} - $errorBody")
+                    }
+                }
+            } catch (e: IOException) {
+                Log.e(TAG, "Network error while updating waypoint: ${e.message}", e)
+                RemoteResult.Error("Network error: ${e.message}")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to update waypoint: ${e.message}", e)
+                RemoteResult.Error("Failed to update waypoint: ${e.message}")
             }
         }
     }

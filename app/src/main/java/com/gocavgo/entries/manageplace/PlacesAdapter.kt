@@ -11,7 +11,8 @@ import java.util.*
 
 class PlacesAdapter(
     private val onEditClick: (DbPlace) -> Unit,
-    private val onDeleteClick: (DbPlace) -> Unit
+    private val onDeleteClick: (DbPlace) -> Unit,
+    private val onViewOnMapClick: (DbPlace) -> Unit
 ) : RecyclerView.Adapter<PlacesAdapter.PlaceViewHolder>() {
 
     private val places = mutableListOf<DbPlace>()
@@ -98,6 +99,10 @@ class PlacesAdapter(
 
             binding.deleteButton.setOnClickListener {
                 onDeleteClick(place)
+            }
+
+            binding.viewOnMapButton.setOnClickListener {
+                onViewOnMapClick(place)
             }
         }
     }

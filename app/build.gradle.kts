@@ -22,17 +22,17 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
-    signingConfigs {
-        create("release") {
-            storeFile = file("my-release-key.jks") // Path to your keystore file
-            storePassword = "Cadio*11."// Configure your signing config here if needed
-            keyAlias = "my-key-alias"
-            keyPassword = "Cadio*11."// keyPassword = "your_key_password"
-            // storeFile = file("path/to/your/keystore.jks")
-            // storePassword = "your_store_password"
-        }
-
-    }
+//    signingConfigs {
+//        create("release") {
+//            storeFile = file("my-release-key.jks") // Path to your keystore file
+//            storePassword = "Cadio*11."// Configure your signing config here if needed
+//            keyAlias = "my-key-alias"
+//            keyPassword = "Cadio*11."// keyPassword = "your_key_password"
+//            // storeFile = file("path/to/your/keystore.jks")
+//            // storePassword = "your_store_password"
+//        }
+//
+//    }
 
 
     buildTypes {
@@ -40,7 +40,7 @@ android {
             isDebuggable = false
             isMinifyEnabled = true
             isShrinkResources = true
-            signingConfig = signingConfigs.getByName("release")
+//            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

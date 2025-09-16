@@ -67,13 +67,24 @@ class PlaceManagementActivity : AppCompatActivity() {
     private fun setupRecyclerView() {
         placesAdapter = PlacesAdapter(
             onEditClick = { place -> showEditPlaceDialog(place) },
-            onDeleteClick = { place -> showDeleteConfirmationDialog(place) }
+            onDeleteClick = { place -> showDeleteConfirmationDialog(place) },
+            onViewOnMapClick = { place -> openPlaceOnMap(place) }
         )
 
         binding.placesRecyclerView.apply {
             layoutManager = LinearLayoutManager(this@PlaceManagementActivity)
             adapter = placesAdapter
         }
+    }
+
+    private fun openPlaceOnMap(place: DbPlace) {
+        val intent = android.content.Intent(this, com.gocavgo.entries.manageplace.PlaceMapActivity::class.java)
+        intent.putExtra("place_id", place.id)
+        intent.putExtra("latitude", place.latitude)
+        intent.putExtra("longitude", place.longitude)
+        intent.putExtra("place_name", place.placeName)
+        intent.putExtra("custom_name", place.customName)
+        startActivity(intent)
     }
 
     private fun setupFilters() {

@@ -145,6 +145,16 @@
             android:gravity="end">
 
             <ImageButton
+                android:id="@+id/viewOnMapButton"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@drawable/ic_location_on"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="View on map"
+                android:layout_marginEnd="8dp"
+                app:tint="@color/primary_color" />
+
+            <ImageButton
                 android:id="@+id/editButton"
                 android:layout_width="40dp"
                 android:layout_height="40dp"

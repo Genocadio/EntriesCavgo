@@ -214,6 +214,19 @@ class MapController(
         }
     }
 
+    fun loadMapSceneWithoutIndicator(geoCoordinates: GeoCoordinates) {
+        val mapScheme = getTimeBasedMapScheme()
+        mapView.mapScene.loadScene(mapScheme) { mapError ->
+            if (mapError == null) {
+                val distanceInMeters = (1000 * 10).toDouble()
+                val mapMeasureZoom = MapMeasure(MapMeasure.Kind.DISTANCE_IN_METERS, distanceInMeters)
+                mapView.camera.lookAt(geoCoordinates, mapMeasureZoom)
+            } else {
+                Log.d(TAG, "Loading map (no indicator) failed: mapError: " + mapError.name)
+            }
+        }
+    }
+
     private fun changeMapScheme(mapScheme: MapScheme) {
         mapView.mapScene.loadScene(mapScheme) { mapError ->
             if (mapError == null) {
@@ -424,6 +437,19 @@ class MapController(
         val isWaypoint = (locationType == "waypoint")
         val options = if (isWaypoint) arrayOf("Remove", "Move", "Edit", "Save", "Toggle Pass-Through")
             else arrayOf("Remove", "Move", "Edit", "Save")
+
+        // If used in PlaceMapActivity context, show minimal prompt with only Move
+        if (context is com.gocavgo.entries.manageplace.PlaceMapActivity) {
+            AlertDialog.Builder(context)
+                .setTitle("$locationType: $markerTitle")
+                .setItems(arrayOf("Move")) { dialog, which ->
+                    if (which == 0) onMarkerActionRequested?.invoke("move", marker)
+                    dialog.dismiss()
+                }
+                .setNegativeButton("Cancel") { dialog, _ -> dialog.dismiss() }
+                .show()
+            return
+        }
 
         AlertDialog.Builder(context)
             .setTitle("$locationType: $markerTitle")
