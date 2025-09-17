@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import android.widget.ArrayAdapter
 import android.widget.AutoCompleteTextView
+import android.widget.Filter
 import com.here.sdk.core.GeoCoordinates
 import com.here.sdk.core.LanguageCode
 import com.here.sdk.core.errors.InstantiationErrorException
@@ -52,25 +53,29 @@ class SearchManager(private val context: Context) {
 
         searchScope.launch {
             try {
+                // Request up to 10 results but we'll limit display to 7
                 when (val result = remoteDataManager.getLocations(search = query, limit = 10)) {
                     is RemoteResult.Success -> {
                         val dbPlaces = result.data.data
                         Log.d(TAG, "Database search returned ${dbPlaces.size} results")
 
                         if (dbPlaces.isNotEmpty()) {
-                            // Convert DbPlace results to display format
-                            val suggestionTitles = dbPlaces.map { dbPlace ->
-                                val displayName = dbPlace.getName()
-                                val district = dbPlace.displayDistrict
-                                if (district != null) {
-                                    "$displayName - $district"
-                                } else {
-                                    displayName
-                                }
+                            // Limit to 7 suggestions max, or show all if fewer than 7
+                            val limitedDbPlaces = if (dbPlaces.size > 7) {
+                                dbPlaces.take(7)
+                            } else {
+                                dbPlaces
                             }
 
+                            // Convert DbPlace results to display format with improved formatting
+                            val suggestionTitles = limitedDbPlaces.map { dbPlace ->
+                                formatDbPlaceSuggestion(dbPlace)
+                            }
+
+                            Log.d(TAG, "Displaying ${suggestionTitles.size} suggestions: $suggestionTitles")
+
                             // Store DbPlaces in a way that can be retrieved by index
-                            updateDatabaseSuggestions(suggestionTitles, dbPlaces)
+                            updateDatabaseSuggestions(suggestionTitles, limitedDbPlaces)
 
                         } else {
                             Log.d(TAG, "No database results found for: $query")
@@ -98,6 +103,34 @@ class SearchManager(private val context: Context) {
         updateSuggestions(suggestionTitles)
     }
 
+    /**
+     * Format DbPlace for display in suggestions with clear distinction between custom and original names
+     */
+    private fun formatDbPlaceSuggestion(dbPlace: DbPlace): String {
+        val originalName = dbPlace.placeName
+        val customName = dbPlace.customName
+        val district = dbPlace.displayDistrict
+
+        return when {
+            // If there's a custom name and it's different from the original
+            !customName.isNullOrBlank() && customName != originalName -> {
+                if (district != null) {
+                    "$customName - $district"
+                } else {
+                    customName
+                }
+            }
+            // If no custom name or custom name is same as original, show Google place name
+            else -> {
+                if (district != null) {
+                    "$originalName - $district"
+                } else {
+                    originalName
+                }
+            }
+        }
+    }
+
     private fun initializeSearchEngine() {
         try {
             searchEngine = SearchEngine()
@@ -107,7 +140,36 @@ class SearchManager(private val context: Context) {
     }
 
     private fun initializeSuggestionsAdapter() {
-        suggestionsAdapter = ArrayAdapter(context, android.R.layout.simple_dropdown_item_1line, arrayListOf<String>())
+        suggestionsAdapter = object : ArrayAdapter<String>(
+            context,
+            android.R.layout.simple_dropdown_item_1line,
+            arrayListOf<String>()
+        ) {
+            override fun getFilter(): Filter {
+                return object : Filter() {
+                    override fun performFiltering(constraint: CharSequence?): FilterResults {
+                        // Don't filter - return all items as we handle filtering ourselves
+                        val results = FilterResults()
+                        val allItems = mutableListOf<String>()
+                        for (i in 0 until count) {
+                            getItem(i)?.let { allItems.add(it) }
+                        }
+                        results.values = allItems
+                        results.count = allItems.size
+                        return results
+                    }
+
+                    @Suppress("UNCHECKED_CAST")
+                    override fun publishResults(constraint: CharSequence?, results: FilterResults?) {
+                        if (results?.count ?: 0 > 0) {
+                            notifyDataSetChanged()
+                        } else {
+                            notifyDataSetInvalidated()
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fun setupAutoCompleteTextView(searchAutoComplete: AutoCompleteTextView) {
@@ -137,6 +199,7 @@ class SearchManager(private val context: Context) {
             // Check if we're in database search mode and have database results
             if (dbSearchResults.isNotEmpty() && position < dbSearchResults.size) {
                 val selectedDbPlace = dbSearchResults[position]
+                // Use getName() which returns custom name if available, otherwise original name
                 val placeName = selectedDbPlace.getName()
 
                 Log.d(TAG, "Selected database place: $placeName ${selectedDbPlace.id}")
@@ -299,15 +362,24 @@ class SearchManager(private val context: Context) {
     }
 
     private fun updateSuggestions(suggestionTitles: List<String>) {
+        Log.d(TAG, "updateSuggestions called with ${suggestionTitles.size} titles")
         suggestionsAdapter.clear()
+        Log.d(TAG, "Adapter cleared. Count after clear: ${suggestionsAdapter.count}")
+        
         if (suggestionTitles.isNotEmpty()) {
-            suggestionsAdapter.addAll(suggestionTitles)
+            suggestionTitles.forEachIndexed { index, title ->
+                Log.d(TAG, "Adding suggestion $index: $title")
+                suggestionsAdapter.add(title)
+            }
             Log.d(TAG, "Added ${suggestionTitles.size} suggestion titles to adapter")
+            Log.d(TAG, "Suggestion titles: $suggestionTitles")
+            Log.d(TAG, "Adapter count after adding: ${suggestionsAdapter.count}")
             onSuggestionsUpdated?.invoke(suggestionTitles)
         } else {
             Log.d(TAG, "No valid suggestion titles found")
         }
         suggestionsAdapter.notifyDataSetChanged()
+        Log.d(TAG, "Adapter notified of data change. Final adapter count: ${suggestionsAdapter.count}")
     }
 
     fun clearSuggestions() {
@@ -317,9 +389,10 @@ class SearchManager(private val context: Context) {
         suggestionsAdapter.notifyDataSetChanged()
     }
     fun showDropdown(searchAutoComplete: AutoCompleteTextView) {
+        Log.d(TAG, "showDropdown called. Adapter count: ${suggestionsAdapter.count}")
         if (suggestionsAdapter.count > 0) {
             searchAutoComplete.showDropDown()
-            Log.d(TAG, "Dropdown shown with suggestions")
+            Log.d(TAG, "Dropdown shown with ${suggestionsAdapter.count} suggestions")
         } else {
             searchAutoComplete.dismissDropDown()
             Log.d(TAG, "No suggestions - dropdown dismissed")

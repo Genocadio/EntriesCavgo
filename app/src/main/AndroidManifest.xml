@@ -30,8 +30,19 @@
             android:theme="@style/Theme.Entries" />
         <activity
             android:name=".hereroutes.ManageRoute"
-            android:exported="false"
-            android:theme="@style/Theme.Entries" />
+            android:exported="true"
+            android:theme="@style/Theme.Entries">
+
+            <!-- Handle "Share" intents -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+
+        </activity>
+        >
+
 
         <meta-data
             android:name="com.google.android.geo.API_KEY"

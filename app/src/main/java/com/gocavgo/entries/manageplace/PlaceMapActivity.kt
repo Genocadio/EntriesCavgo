@@ -163,7 +163,9 @@ class PlaceMapActivity : AppCompatActivity() {
                 val first = list?.firstOrNull()
                 if (error == null && first != null) {
                     val newTitle = first.title.ifBlank { first.address.addressText }
+                    val id = first.id
                     dbPlace.setPlaceName(newTitle)
+                    dbPlace.setPlaceId(id)
                     dbPlace.updateCoordinates(coords.latitude, coords.longitude)
                     // We do not allow district edit here per requirements
 
