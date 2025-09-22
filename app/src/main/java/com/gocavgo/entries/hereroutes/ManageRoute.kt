@@ -34,8 +34,11 @@ import kotlin.math.abs
 import com.here.sdk.core.Metadata
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.gocavgo.entries.service.RemoteDataManager
 import com.gocavgo.entries.service.RemoteResult
+import android.content.Intent
 
 class ManageRoute : AppCompatActivity() {
 
@@ -74,6 +77,7 @@ class ManageRoute : AppCompatActivity() {
     private lateinit var searchManager: SearchManager
     private lateinit var uiController: UIController
     private lateinit var mapController: MapController
+    private lateinit var shareLocationProcessor: ShareLocationProcessor
 
     // Route action buttons
     private lateinit var saveLocationButton: Button
@@ -150,6 +154,410 @@ class ManageRoute : AppCompatActivity() {
             if (geoCoordinates != null) {
                 mapController.loadMapScene(geoCoordinates)
             }
+        }
+
+        // Process shared location if this activity was launched with a share intent
+        processSharedLocation()
+    }
+
+    /**
+     * Process shared location from navigation apps
+     */
+    private fun processSharedLocation() {
+        val intent = intent
+        Log.d(TAG, "=== PROCESSING SHARED LOCATION ===")
+        Log.d(TAG, "Intent action: ${intent.action}")
+        Log.d(TAG, "Intent type: ${intent.type}")
+        Log.d(TAG, "Intent data: ${intent.data}")
+        Log.d(TAG, "Intent extras: ${intent.extras}")
+        
+        // Log all intent extras
+        intent.extras?.let { extras ->
+            Log.d(TAG, "Intent extras keys: ${extras.keySet()}")
+            for (key in extras.keySet()) {
+                val value = extras.get(key)
+                Log.d(TAG, "  $key: $value")
+            }
+        }
+        
+        // Log specific share-related extras
+        val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)
+        val sharedSubject = intent.getStringExtra(Intent.EXTRA_SUBJECT)
+        val sharedHtmlText = intent.getStringExtra(Intent.EXTRA_HTML_TEXT)
+        
+        Log.d(TAG, "EXTRA_TEXT: $sharedText")
+        Log.d(TAG, "EXTRA_SUBJECT: $sharedSubject")
+        Log.d(TAG, "EXTRA_HTML_TEXT: $sharedHtmlText")
+        
+        // Check if we have a shortened URL that needs resolution
+        if (sharedText != null && sharedText.contains("maps.app.goo.gl")) {
+            Log.d(TAG, "Detected shortened Google Maps URL, resolving asynchronously...")
+            resolveAndProcessShortenedUrl(sharedText, sharedSubject)
+        } else {
+            // Process normally
+            val shareResult = shareLocationProcessor.processSharedIntent(intent)
+            handleShareResult(shareResult)
+        }
+        
+        Log.d(TAG, "=== END PROCESSING SHARED LOCATION ===")
+    }
+    
+    /**
+     * Resolve shortened URL and process the location
+     */
+    private fun resolveAndProcessShortenedUrl(url: String, title: String?) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "Resolving shortened URL: $url")
+                val resolvedUrl = shareLocationProcessor.resolveShortenedUrl(url)
+                
+                Log.d(TAG, "Resolved URL: $resolvedUrl")
+                
+                if (resolvedUrl != null && resolvedUrl != url) {
+                    // Create a new intent with the resolved URL
+                    val resolvedIntent = Intent().apply {
+                        action = Intent.ACTION_SEND
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, resolvedUrl)
+                        putExtra(Intent.EXTRA_TITLE, title)
+                    }
+                    
+                    // Process the resolved URL
+                    val shareResult = shareLocationProcessor.processSharedIntent(resolvedIntent)
+                    
+                    // Switch back to main thread for UI updates
+                    withContext(Dispatchers.Main) {
+                        handleShareResult(shareResult)
+                    }
+                } else {
+                    Log.w(TAG, "Failed to resolve shortened URL")
+                    withContext(Dispatchers.Main) {
+                        CustomToast.showError(this@ManageRoute, "Could not resolve shared location URL")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error resolving shortened URL: ${e.message}", e)
+                withContext(Dispatchers.Main) {
+                    CustomToast.showError(this@ManageRoute, "Error processing shared location: ${e.message}")
+                }
+            }
+        }
+    }
+    
+    /**
+     * Handle the result of share processing
+     */
+    private fun handleShareResult(shareResult: ShareLocationProcessor.ShareLocationResult?) {
+        if (shareResult != null) {
+            Log.d(TAG, "Successfully processed shared location:")
+            Log.d(TAG, "  Coordinates: ${shareResult.coordinates.latitude}, ${shareResult.coordinates.longitude}")
+            Log.d(TAG, "  Source: ${shareResult.sourceApp}")
+            Log.d(TAG, "  Original text: ${shareResult.originalText}")
+            Log.d(TAG, "  Route data: ${shareResult.routeData}")
+            
+            // Check if this is a route share
+            if (shareResult.routeData != null) {
+                Log.d(TAG, "Processing route share with origin and destination")
+                handleRouteShare(shareResult.routeData, shareResult.sourceApp)
+            } else {
+                Log.d(TAG, "Processing single location share")
+                // Create DbPlace with temporary name (will be updated by reverse geocoding)
+                val dbPlace = DbPlace.create(
+                    placeName = "Shared Location (${shareResult.sourceApp})",
+                    latitude = shareResult.coordinates.latitude,
+                    longitude = shareResult.coordinates.longitude,
+                    address = "Shared from ${shareResult.sourceApp}"
+                )
+                
+                // Add the shared location to the map
+                addSharedLocationToMap(shareResult.coordinates, dbPlace, shareResult.sourceApp)
+                
+                // Show success message
+                CustomToast.showSuccess(this, "Location shared from ${shareResult.sourceApp}")
+            }
+            
+        } else {
+            Log.d(TAG, "No shared location found in intent")
+            Log.d(TAG, "ShareLocationProcessor returned null")
+            CustomToast.showWarning(this, "Could not extract location from shared content")
+        }
+    }
+    
+    /**
+     * Handle route share (origin, destination, and waypoints)
+     */
+    private fun handleRouteShare(routeData: ShareLocationProcessor.RouteData, sourceApp: String) {
+        Log.d(TAG, "Handling route share:")
+        Log.d(TAG, "  Origin: ${routeData.origin.latitude}, ${routeData.origin.longitude}")
+        Log.d(TAG, "  Destination: ${routeData.destination.latitude}, ${routeData.destination.longitude}")
+        Log.d(TAG, "  Waypoints: ${routeData.waypoints.size}")
+        
+        // Clear existing route
+        resetToInitialState()
+        
+        // Create DbPlace for origin
+        val originDbPlace = DbPlace.create(
+            placeName = "Origin (${sourceApp})",
+            latitude = routeData.origin.latitude,
+            longitude = routeData.origin.longitude,
+            address = "Shared from ${sourceApp}"
+        )
+        
+        // Create DbPlace for destination
+        val destinationDbPlace = DbPlace.create(
+            placeName = "Destination (${sourceApp})",
+            latitude = routeData.destination.latitude,
+            longitude = routeData.destination.longitude,
+            address = "Shared from ${sourceApp}"
+        )
+        
+        // Add origin to map (without triggering route calculation)
+        addRouteLocationToMapSilently(routeData.origin, originDbPlace, "origin", sourceApp)
+        
+        // Add destination to map (without triggering route calculation)
+        addRouteLocationToMapSilently(routeData.destination, destinationDbPlace, "destination", sourceApp)
+        
+        // Add waypoints to map (without triggering route calculation)
+        routeData.waypoints.forEachIndexed { index, waypointCoords ->
+            val waypointDbPlace = DbPlace.create(
+                placeName = "Waypoint ${index + 1} (${sourceApp})",
+                latitude = waypointCoords.latitude,
+                longitude = waypointCoords.longitude,
+                address = "Shared from ${sourceApp}"
+            )
+            
+            addRouteLocationToMapSilently(waypointCoords, waypointDbPlace, "waypoint", sourceApp)
+        }
+        
+        // Show success message
+        val waypointText = if (routeData.waypoints.isNotEmpty()) " with ${routeData.waypoints.size} waypoint(s)" else ""
+        CustomToast.showSuccess(this, "Route shared from ${sourceApp}${waypointText}")
+        
+        // Calculate route ONCE after all locations are added
+        Log.d(TAG, "All route locations added - calculating route automatically")
+        routingExample.calculateRouteWithWaypoints()
+    }
+    
+    /**
+     * Add route location to map silently (without triggering route calculation)
+     */
+    private fun addRouteLocationToMapSilently(coordinates: GeoCoordinates, dbPlace: DbPlace, markerType: String, sourceApp: String) {
+        // Move map to the location
+        mapController.moveMapToLocation(coordinates)
+        
+        // Add marker for the location
+        val marker = mapController.addSearchMarker(coordinates, dbPlace, markerType)
+        
+        // Handle location selection
+        handleLocationSelection(coordinates, dbPlace.getName(), dbPlace)
+        
+        // Show place details initially (will be updated by reverse geocoding)
+        uiController.showPlaceDetails(null, dbPlace)
+        
+        // Update selection state
+        when (markerType) {
+            "origin" -> {
+                isSelectingOrigin = true
+                isSelectingDestination = false
+                isSelectingWaypoint = false
+            }
+            "destination" -> {
+                isSelectingOrigin = false
+                isSelectingDestination = true
+                isSelectingWaypoint = false
+            }
+            "waypoint" -> {
+                isSelectingOrigin = false
+                isSelectingDestination = false
+                isSelectingWaypoint = true
+            }
+        }
+        
+        Log.d(TAG, "Added route $markerType silently: ${dbPlace.getName()}")
+        
+        // Reverse geocode to get proper place name and address
+        val options = com.here.sdk.search.SearchOptions().apply {
+            languageCode = com.here.sdk.core.LanguageCode.EN_GB
+            maxItems = 1
+        }
+        
+        reverseGeocodeEngine.searchByCoordinates(coordinates, options, object : com.here.sdk.search.SearchCallback {
+            override fun onSearchCompleted(searchError: com.here.sdk.search.SearchError?, list: List<com.here.sdk.search.Place>?) {
+                if (searchError == null) {
+                    val place = list?.firstOrNull()
+                    place?.let {
+                        val updatedTitle = it.title.ifBlank { it.address.addressText }
+                        dbPlace.setPlaceName(updatedTitle)
+                        dbPlace.setAddress(it.address.addressText)
+                        
+                        // Update marker title
+                        val updatedMetadata = marker.metadata ?: com.here.sdk.core.Metadata()
+                        updatedMetadata.setString("marker_title", dbPlace.getName())
+                        marker.metadata = updatedMetadata
+                        
+                        // Show updated place details
+                        uiController.showPlaceDetails(it, dbPlace)
+                        
+                        Log.d(TAG, "Updated route $markerType with reverse geocoded name: ${dbPlace.getName()}")
+                    }
+                } else {
+                    Log.w(TAG, "Reverse geocoding failed for route $markerType: ${searchError.name}")
+                }
+            }
+        })
+    }
+    
+    /**
+     * Add route location to map (origin or destination)
+     */
+    private fun addRouteLocationToMap(coordinates: GeoCoordinates, dbPlace: DbPlace, markerType: String, sourceApp: String) {
+        // Move map to the location
+        mapController.moveMapToLocation(coordinates)
+        
+        // Add marker for the location
+        val marker = mapController.addSearchMarker(coordinates, dbPlace, markerType)
+        
+        // Handle location selection
+        handleLocationSelection(coordinates, dbPlace.getName(), dbPlace)
+        
+        // Show place details initially (will be updated by reverse geocoding)
+        uiController.showPlaceDetails(null, dbPlace)
+        
+        // Update selection state
+        when (markerType) {
+            "origin" -> {
+                isSelectingOrigin = true
+                isSelectingDestination = false
+                isSelectingWaypoint = false
+            }
+            "destination" -> {
+                isSelectingOrigin = false
+                isSelectingDestination = true
+                isSelectingWaypoint = false
+            }
+            "waypoint" -> {
+                isSelectingOrigin = false
+                isSelectingDestination = false
+                isSelectingWaypoint = true
+            }
+        }
+        
+        Log.d(TAG, "Added route $markerType: ${dbPlace.getName()}")
+        
+        // Reverse geocode to get proper place name and address
+        val options = com.here.sdk.search.SearchOptions().apply {
+            languageCode = com.here.sdk.core.LanguageCode.EN_GB
+            maxItems = 1
+        }
+        
+        reverseGeocodeEngine.searchByCoordinates(coordinates, options, object : com.here.sdk.search.SearchCallback {
+            override fun onSearchCompleted(searchError: com.here.sdk.search.SearchError?, list: List<com.here.sdk.search.Place>?) {
+                if (searchError == null) {
+                    val place = list?.firstOrNull()
+                    place?.let {
+                        val updatedTitle = it.title.ifBlank { it.address.addressText }
+                        dbPlace.setPlaceName(updatedTitle)
+                        dbPlace.setAddress(it.address.addressText)
+                        
+                        // Update marker title
+                        val updatedMetadata = marker.metadata ?: com.here.sdk.core.Metadata()
+                        updatedMetadata.setString("marker_title", dbPlace.getName())
+                        marker.metadata = updatedMetadata
+                        
+                        // Show updated place details
+                        uiController.showPlaceDetails(it, dbPlace)
+                        
+                        Log.d(TAG, "Updated route $markerType with reverse geocoded name: ${dbPlace.getName()}")
+                    }
+                } else {
+                    Log.w(TAG, "Reverse geocoding failed for route $markerType: ${searchError.name}")
+                }
+            }
+        })
+    }
+    
+    /**
+     * Add shared location to map and handle it like a search result
+     */
+    private fun addSharedLocationToMap(coordinates: GeoCoordinates, dbPlace: DbPlace, sourceApp: String) {
+        // Move map to the shared location
+        mapController.moveMapToLocation(coordinates)
+        
+        // Determine the appropriate marker type based on current state
+        val markerType = when {
+            selectedOrigin == null -> "origin"
+            selectedDestination == null -> "destination"
+            else -> "waypoint"
+        }
+        
+        // Add marker for the shared location
+        val marker = mapController.addSearchMarker(coordinates, dbPlace, markerType)
+        
+        // Handle location selection (this will set origin/destination/waypoint as appropriate)
+        handleLocationSelection(coordinates, dbPlace.getName(), dbPlace)
+        
+        // Show place details initially (will be updated by reverse geocoding)
+        uiController.showPlaceDetails(null, dbPlace)
+        
+        // Update selection state if needed
+        when (markerType) {
+            "origin" -> {
+                isSelectingOrigin = true
+                isSelectingDestination = false
+                isSelectingWaypoint = false
+            }
+            "destination" -> {
+                isSelectingOrigin = false
+                isSelectingDestination = true
+                isSelectingWaypoint = false
+            }
+            "waypoint" -> {
+                isSelectingOrigin = false
+                isSelectingDestination = false
+                isSelectingWaypoint = true
+            }
+        }
+        
+        Log.d(TAG, "Added shared location as $markerType: ${dbPlace.getName()}")
+        
+        // Reverse geocode to get proper place name and address (same as long press)
+        val options = com.here.sdk.search.SearchOptions().apply {
+            languageCode = com.here.sdk.core.LanguageCode.EN_GB
+            maxItems = 1
+        }
+        
+        reverseGeocodeEngine.searchByCoordinates(coordinates, options, object : com.here.sdk.search.SearchCallback {
+            override fun onSearchCompleted(searchError: com.here.sdk.search.SearchError?, list: List<com.here.sdk.search.Place>?) {
+                if (searchError == null) {
+                    val place = list?.firstOrNull()
+                    place?.let {
+                        val updatedTitle = it.title.ifBlank { it.address.addressText }
+                        dbPlace.setPlaceName(updatedTitle)
+                        dbPlace.setAddress(it.address.addressText)
+                        
+                        // Update marker title
+                        val updatedMetadata = marker.metadata ?: com.here.sdk.core.Metadata()
+                        updatedMetadata.setString("marker_title", dbPlace.getName())
+                        marker.metadata = updatedMetadata
+                        
+                        // Show updated place details
+                        uiController.showPlaceDetails(it, dbPlace)
+                        
+                        Log.d(TAG, "Updated shared location with reverse geocoded name: ${dbPlace.getName()}")
+                        
+                        // Update success message with proper name
+                        CustomToast.showSuccess(this@ManageRoute, "Location shared from $sourceApp: ${dbPlace.getName()}")
+                    }
+                } else {
+                    Log.w(TAG, "Reverse geocoding failed for shared location: ${searchError.name}")
+                }
+            }
+        })
+        
+        // If we have both origin and destination now, calculate route automatically
+        if (selectedOrigin != null && selectedDestination != null && !routingExample.hasActiveRoute()) {
+            Log.d(TAG, "Both origin and destination set - calculating route automatically")
+            routingExample.calculateRouteWithWaypoints()
         }
     }
 
@@ -229,6 +637,7 @@ class ManageRoute : AppCompatActivity() {
     private fun initializeComponents() {
         routingExample = RoutingExample(this, mapView!!)
         searchManager = SearchManager(this)
+        shareLocationProcessor = ShareLocationProcessor()
 
         uiController = UIController(
             this,
@@ -702,13 +1111,13 @@ class ManageRoute : AppCompatActivity() {
                     isSelectingOrigin = false
                     isSelectingDestination = true
                     isSelectingWaypoint = false
-                    uiController.switchToDestinationSelection()
+                    // Don't call switchToDestinationSelection() for long press - it shows search overlay
                 }
                 else -> {
                     isSelectingOrigin = false
                     isSelectingDestination = false
                     isSelectingWaypoint = true
-                    uiController.switchToWaypointSelection()
+                    // Don't call switchToWaypointSelection() for long press - it shows search overlay
                 }
             }
 
@@ -751,31 +1160,23 @@ class ManageRoute : AppCompatActivity() {
                             marker.metadata = updatedMetadata
 
                             uiController.showPlaceDetails(it, dbPlace)
+                            // Ensure action buttons are visible after reverse geocoding
+                            uiController.updateActionButtonsVisibility()
                         }
                     }
                 }
             })
 
-            // Advance selection automatically: after origin -> destination, after destination -> waypoint
-            when (targetType) {
-                "origin" -> {
-                    isSelectingOrigin = false
-                    isSelectingDestination = true
-                    isSelectingWaypoint = false
-                    uiController.switchToDestinationSelection()
-                }
-                "destination" -> {
-                    isSelectingOrigin = false
-                    isSelectingDestination = false
-                    isSelectingWaypoint = true
-                    uiController.switchToWaypointSelection()
-                }
-            }
-
-            // Update UI details (will be refined by reverse geocode callback if it returns)
+            // Update UI details first (will be refined by reverse geocode callback if it returns)
             uiController.clearSearchState()
             uiController.hideSearchOverlay()
             uiController.showPlaceDetails(null, dbPlace)
+            
+            // Ensure search overlay is completely hidden for long press
+            uiController.hideSearchOverlay()
+
+            // Don't auto-advance selection state for long press - let user manually click buttons
+            // This ensures place details with action buttons are always shown for long press
 
             Log.d(TAG, "Long press set $targetType: ${dbPlace.getName()}")
         }
@@ -1266,6 +1667,39 @@ class ManageRoute : AppCompatActivity() {
         SDKNativeEngine.setSharedInstance(null)
     }
 
+    /**
+     * Check if there are any unsaved locations on the map
+     * Returns true if there are locations that haven't been saved to backend
+     */
+    private fun hasUnsavedLocations(): Boolean {
+        // Check if origin exists and is unsaved
+        val hasUnsavedOrigin = originDbPlace?.let { dbPlace ->
+            dbPlace.id.isNullOrBlank() || dbPlace.edited
+        } ?: false
+
+        // Check if destination exists and is unsaved
+        val hasUnsavedDestination = destinationDbPlace?.let { dbPlace ->
+            dbPlace.id.isNullOrBlank() || dbPlace.edited
+        } ?: false
+
+        // Check if any waypoints exist and are unsaved
+        val hasUnsavedWaypoints = waypointDbPlaces.any { dbPlace ->
+            dbPlace.id.isNullOrBlank() || dbPlace.edited
+        }
+
+        val hasAnyLocation = selectedOrigin != null || selectedDestination != null || waypointDbPlaces.isNotEmpty()
+        val hasUnsavedLocation = hasUnsavedOrigin || hasUnsavedDestination || hasUnsavedWaypoints
+
+        Log.d(TAG, "hasUnsavedLocations check:")
+        Log.d(TAG, "  Has any location: $hasAnyLocation")
+        Log.d(TAG, "  Has unsaved origin: $hasUnsavedOrigin")
+        Log.d(TAG, "  Has unsaved destination: $hasUnsavedDestination")
+        Log.d(TAG, "  Has unsaved waypoints: $hasUnsavedWaypoints")
+        Log.d(TAG, "  Has unsaved location: $hasUnsavedLocation")
+
+        return hasAnyLocation && hasUnsavedLocation
+    }
+
     override fun onPause() {
         mapView?.onPause()
         super.onPause()
@@ -1274,6 +1708,15 @@ class ManageRoute : AppCompatActivity() {
     override fun onResume() {
         mapView?.onResume()
         super.onResume()
+    }
+    
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        Log.d(TAG, "onNewIntent called with action: ${intent.action}")
+        
+        // Update the intent and process shared location
+        this.intent = intent
+        processSharedLocation()
     }
 
     override fun onDestroy() {
@@ -1286,5 +1729,51 @@ class ManageRoute : AppCompatActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         mapView?.onSaveInstanceState(outState)
         super.onSaveInstanceState(outState)
+    }
+
+    override fun onBackPressed() {
+        Log.d(TAG, "Back button pressed")
+        
+        // Check if search overlay is visible
+        if (searchOverlay.isVisible) {
+            Log.d(TAG, "Search overlay is visible - closing search")
+            uiController.hideSearchOverlay()
+            return
+        }
+
+        // Check if search container is visible (search interface is open)
+        if (searchContainer.isVisible) {
+            Log.d(TAG, "Search container is visible - closing search")
+            uiController.hideSearchOverlay()
+            return
+        }
+
+        // Check if there are unsaved locations on the map
+        if (hasUnsavedLocations()) {
+            Log.d(TAG, "Unsaved locations detected - showing confirmation dialog")
+            showExitConfirmationDialog()
+            return
+        }
+
+        // No unsaved locations - exit normally
+        Log.d(TAG, "No unsaved locations - exiting activity")
+        super.onBackPressed()
+    }
+
+    private fun showExitConfirmationDialog() {
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Exit Route Planning")
+            .setMessage("You have unsaved locations on the map. The map will be cleared if you exit.")
+            .setPositiveButton("Exit") { _, _ ->
+                Log.d(TAG, "User confirmed exit - clearing map and exiting")
+                resetToInitialState()
+                finish()
+            }
+            .setNegativeButton("Cancel") { dialog, _ ->
+                Log.d(TAG, "User cancelled exit")
+                dialog.dismiss()
+            }
+            .setCancelable(true)
+            .show()
     }
 }

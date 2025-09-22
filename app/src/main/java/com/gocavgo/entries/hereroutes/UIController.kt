@@ -781,12 +781,15 @@ class UIController(
 
         placeDetailsContainer.visibility = View.VISIBLE
         searchContainer.visibility = View.GONE
+        
+        // Ensure search overlay is hidden when showing place details
+        hideSearchOverlay()
 
         updateActionButtonsVisibility()
     }
 
 
-    private fun updateActionButtonsVisibility() {
+    fun updateActionButtonsVisibility() {
         val selectionState = onSelectionStateRequest?.invoke()
         val (isSelectingOrigin, isSelectingDestination, isSelectingWaypoint) = selectionState ?: Triple(true, false, false)
 
@@ -804,14 +807,25 @@ class UIController(
             }
 
             isSelectingDestination -> {
-                // Hide place details when destination is selected and route is created
-                placeDetailsContainer.visibility = View.GONE
-                locationActionsContainer.visibility = View.GONE
-                routeActionsContainer.visibility = View.VISIBLE
-
+                // Check if we should show place details (for long press scenarios)
                 val routeData = onRouteDataRequest?.invoke()
-                if (routeData?.first == true) {
+                val hasRoute = routeData?.first == true
+                
+                if (hasRoute) {
+                    // Hide place details when destination is selected and route is created
+                    placeDetailsContainer.visibility = View.GONE
+                    locationActionsContainer.visibility = View.GONE
+                    routeActionsContainer.visibility = View.VISIBLE
                     showRouteSummary()
+                } else {
+                    // Show place details with action buttons when no route exists yet (long press scenario)
+                    placeDetailsContainer.visibility = View.VISIBLE
+                    locationActionsContainer.visibility = View.VISIBLE
+                    routeActionsContainer.visibility = View.GONE
+                    routeSummaryContainer.visibility = View.GONE
+                    
+                    addDestinationButton?.visibility = View.VISIBLE
+                    addWaypointButton?.visibility = View.GONE
                 }
             }
 
