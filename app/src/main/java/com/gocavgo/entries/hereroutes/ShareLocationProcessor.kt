@@ -3,7 +3,7 @@ package com.gocavgo.entries.hereroutes
 import android.content.Intent
 import android.net.Uri
 import android.util.Log
-import com.here.sdk.core.GeoCoordinates
+import org.maplibre.android.geometry.LatLng
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLDecoder
@@ -23,7 +23,7 @@ class ShareLocationProcessor {
         // Common patterns for extracting coordinates from shared text
         private val COORDINATE_PATTERNS = listOf(
             // Google Maps patterns
-            Pattern.compile("(-?\\d+\\.\\d+),\\s*(-?\\d+\\.\\d+)"), // Basic lat,lng
+            Pattern.compile("(-?[+]?\\d+\\.\\d+),\\s*(-?[+]?\\d+\\.\\d+)"), // Basic lat,lng
             Pattern.compile("@(-?\\d+\\.\\d+),(-?\\d+\\.\\d+)"), // @lat,lng format
             Pattern.compile("!3d(-?\\d+\\.\\d+)!4d(-?\\d+\\.\\d+)"), // Google Maps 3d/4d format
             
@@ -301,11 +301,11 @@ class ShareLocationProcessor {
     /**
      * Extract all coordinates from a Google Maps route URL
      */
-    private fun extractAllCoordinatesFromUrl(url: String): List<GeoCoordinates> {
-        val coordinates = mutableListOf<GeoCoordinates>()
-        
+    private fun extractAllCoordinatesFromUrl(url: String): List<LatLng> {
+        val coordinates = mutableListOf<LatLng>()
+
         Log.d(TAG, "Extracting all coordinates from URL")
-        
+
         // Pattern 1: Extract coordinates from !3d and !4d format (embedded in data parameter)
         val embeddedPattern = Pattern.compile("!3d(-?\\d+\\.\\d+)!4d(-?\\d+\\.\\d+)")
         val embeddedMatcher = embeddedPattern.matcher(url)
@@ -315,7 +315,7 @@ class ShareLocationProcessor {
             val lng = embeddedMatcher.group(2).toDoubleOrNull()
             
             if (lat != null && lng != null && isValidCoordinate(lat, lng)) {
-                val coord = GeoCoordinates(lat, lng)
+                val coord = LatLng(lat, lng)
                 coordinates.add(coord)
                 Log.d(TAG, "Found embedded coordinate: ${lat}, ${lng}")
             }
@@ -342,15 +342,18 @@ class ShareLocationProcessor {
         }
         
         // Pattern 3: Extract any remaining coordinate pairs in the URL
-        val coordPattern = Pattern.compile("(-?\\d+\\.\\d+),(-?\\d+\\.\\d+)")
+        val coordPattern = Pattern.compile("(-?[+]?\\d+\\.\\d+),(-?[+]?\\d+\\.\\d+)")
         val coordMatcher = coordPattern.matcher(url)
         
         while (coordMatcher.find()) {
             val lat = coordMatcher.group(1).toDoubleOrNull()
             val lng = coordMatcher.group(2).toDoubleOrNull()
             
-            if (lat != null && lng != null && isValidCoordinate(lat, lng)) {
-                val coord = GeoCoordinates(lat, lng)
+            // Skip the map center (@lat,lng,...) — it is not a route stop
+            val isMapCenter = coordMatcher.start() > 0 && url[coordMatcher.start() - 1] == '@'
+            
+            if (lat != null && lng != null && isValidCoordinate(lat, lng) && !isMapCenter) {
+                val coord = LatLng(lat, lng)
                 
                 // Avoid duplicates
                 val isDuplicate = coordinates.any { existing ->
@@ -372,7 +375,7 @@ class ShareLocationProcessor {
     /**
      * Parse coordinate pair string (e.g., "-1.9887713,30.1480708")
      */
-    private fun parseCoordinatePair(coordStr: String): GeoCoordinates? {
+    private fun parseCoordinatePair(coordStr: String): LatLng? {
         return try {
             val parts = coordStr.split(",")
             if (parts.size >= 2) {
@@ -380,7 +383,7 @@ class ShareLocationProcessor {
                 val lng = parts[1].toDoubleOrNull()
                 
                 if (lat != null && lng != null && isValidCoordinate(lat, lng)) {
-                    GeoCoordinates(lat, lng)
+                    LatLng(lat, lng)
                 } else {
                     Log.w(TAG, "Invalid coordinates: $coordStr")
                     null
@@ -464,7 +467,7 @@ class ShareLocationProcessor {
                         if (lat != null && lng != null) {
                             val locationName = extractLocationNameFromUrl(url)
                             return LocationData(
-                                coordinates = GeoCoordinates(lat, lng),
+                                coordinates = LatLng(lat, lng),
                                 locationName = locationName
                             )
                         }
@@ -483,7 +486,7 @@ class ShareLocationProcessor {
                         if (lat != null && lng != null) {
                             val locationName = extractLocationNameFromUrl(url)
                             return LocationData(
-                                coordinates = GeoCoordinates(lat, lng),
+                                coordinates = LatLng(lat, lng),
                                 locationName = locationName
                             )
                         }
@@ -500,7 +503,7 @@ class ShareLocationProcessor {
                         if (lat != null && lng != null) {
                             val locationName = extractLocationNameFromUrl(url)
                             return LocationData(
-                                coordinates = GeoCoordinates(lat, lng),
+                                coordinates = LatLng(lat, lng),
                                 locationName = locationName
                             )
                         }
@@ -533,7 +536,7 @@ class ShareLocationProcessor {
                 if (lat != null && lng != null) {
                     val locationName = extractLocationNameFromUrl(url)
                     return LocationData(
-                        coordinates = GeoCoordinates(lat, lng),
+                        coordinates = LatLng(lat, lng),
                         locationName = locationName
                     )
                 }
@@ -574,7 +577,7 @@ class ShareLocationProcessor {
                     Log.d(TAG, "Extracted location name: $locationName")
                     
                     val result = LocationData(
-                        coordinates = GeoCoordinates(lat, lng),
+                        coordinates = LatLng(lat, lng),
                         locationName = locationName
                     )
                     Log.d(TAG, "Created LocationData: $result")
@@ -770,7 +773,7 @@ class ShareLocationProcessor {
      * Data class for extracted location information
      */
     data class LocationData(
-        val coordinates: GeoCoordinates,
+        val coordinates: LatLng,
         val locationName: String?
     )
     
@@ -778,16 +781,16 @@ class ShareLocationProcessor {
      * Data class for route information (multiple locations)
      */
     data class RouteData(
-        val origin: GeoCoordinates,
-        val destination: GeoCoordinates,
-        val waypoints: List<GeoCoordinates> = emptyList()
+        val origin: LatLng,
+        val destination: LatLng,
+        val waypoints: List<LatLng> = emptyList()
     )
     
     /**
      * Result class for processed share intent
      */
     data class ShareLocationResult(
-        val coordinates: GeoCoordinates,
+        val coordinates: LatLng,
         val locationName: String,
         val sourceApp: String,
         val originalText: String,

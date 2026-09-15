@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark theme semantic color overrides -->
+    <color name="ui_background">#FF101114</color>
+    <color name="ui_surface">#FF1B1C20</color>
+    <color name="ui_surface_variant">#FF222328</color>
+    <color name="ui_card">#FF25262B</color>
+    <color name="ui_surface_container">#FF1E1F24</color>
+    <color name="ui_input_background">#FF2A2C31</color>
+    <color name="ui_divider">#3A3B41</color>
+    <color name="ui_border">#3A3B41</color>
+
+    <!-- Higher-contrast text for dark backgrounds -->
+    <color name="ui_text_primary">#FFEDEEF1</color>
+    <color name="ui_text_secondary">#FFB8BCC4</color>
+    <color name="ui_text_hint">#FF959BA5</color>
+    <color name="ui_text_on_accent">#FFFFFFFF</color>
+
+    <color name="icon_tint">#FFE8EAF0</color>
+
+    <color name="fab_background">#FF2A2C31</color>
+    <color name="fab_icon">#FF7EB3F7</color>
+
+    <!-- Existing semantic colors used across management screens -->
+    <color name="text_primary">#FFEDEEF1</color>
+    <color name="text_secondary">#FFB8BCC4</color>
+    <color name="text_hint">#FF959BA5</color>
+    <color name="text_hint_background">#FF2A2C31</color>
+    <color name="card_background_light">#FF25262B</color>
+    <color name="route_summary_background">#FF1B1C20</color>
+    <color name="bottom_container_background">#FF1B1C20</color>
+    <color name="divider">#3A3B41</color>
+
+    <!-- Brighter accent for dark-mode contrast on text/strokes -->
+    <color name="primary_color">#64B5F6</color>
+    <color name="accent_color">#81C784</color>
+    <color name="info_color">#64B5F6</color>
+    <color name="info_text_color">#90CAF9</color>
+    <color name="primary_light">#1E3A5F</color>
+</resources>

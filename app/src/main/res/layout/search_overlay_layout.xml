@@ -1,113 +1,80 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/search_overlay"
-    android:layout_width="0dp"
-    android:layout_height="0dp"
-    android:background="@android:color/white"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/scrim"
     android:elevation="16dp"
-    android:orientation="vertical"
-    android:visibility="gone"
-    app:layout_constraintBottom_toBottomOf="parent"
-    app:layout_constraintEnd_toEndOf="parent"
-    app:layout_constraintStart_toStartOf="parent"
-    app:layout_constraintTop_toTopOf="parent">
+    android:clickable="true"
+    android:focusable="true"
+    android:visibility="gone">
 
-    <!-- Search Header -->
+    <!-- Floating search card at the top -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="40dp"
-        android:layout_margin="16dp"
-        android:background="@drawable/modern_search_background"
-        android:elevation="4dp"
-        android:orientation="horizontal"
-        android:padding="8dp">
+        android:layout_marginHorizontal="12dp"
+        android:orientation="vertical">
 
-        <ImageButton
-            android:id="@+id/back_search_button"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:background="@drawable/modern_round_button"
-            android:contentDescription="Back"
-            android:src="@android:drawable/ic_menu_revert"
-            app:tint="#1A1A1A" />
-
-        <AutoCompleteTextView
-            android:id="@+id/search_autocomplete"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="1"
-            android:background="@android:color/transparent"
-            android:hint="Search for origin location..."
-            android:imeOptions="actionSearch"
-            android:inputType="text"
-            android:padding="16dp"
-            android:textSize="16sp"
-            android:textColor="#1A1A1A"
-            android:textColorHint="#757575"
-            android:fontFamily="sans-serif-medium"
-            android:completionThreshold="1"
-            android:dropDownHeight="wrap_content"
-            android:dropDownWidth="match_parent"
-            android:popupBackground="@android:color/white" />
-
-        <!-- Database Search Toggle -->
-        <androidx.appcompat.widget.SwitchCompat
-            android:id="@+id/database_search_toggle"
-            android:layout_width="wrap_content"
-            android:layout_height="48dp"
-            android:layout_marginStart="8dp"
-            android:layout_marginEnd="8dp"
-            android:text="DB"
-            android:textSize="12sp"
-            android:textColor="#1A1A1A"
-            android:thumbTint="#2196F3"
-            android:trackTint="#E0E0E0"
-            android:contentDescription="Toggle database search" />
-
-        <ImageButton
-            android:id="@+id/clear_search"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:background="@drawable/modern_round_button"
-            android:contentDescription="Clear search"
-            android:src="@android:drawable/ic_menu_close_clear_cancel"
-            android:visibility="gone"
-            app:tint="#757575" />
-
-    </LinearLayout>
-
-    <!-- Search Mode Indicator -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginHorizontal="16dp"
-        android:layout_marginBottom="8dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical">
-
-        <TextView
-            android:id="@+id/search_mode_indicator"
-            android:layout_width="wrap_content"
+        <!-- Search bar card — clickable to prevent scrim touch from closing -->
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Searching HERE Maps"
-            android:textSize="12sp"
-            android:textColor="#757575"
-            android:fontFamily="sans-serif-medium" />
+            android:background="@drawable/modern_search_background"
+            android:elevation="8dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:clickable="true"
+            android:focusable="true"
+            android:padding="6dp">
 
-        <View
-            android:layout_width="0dp"
-            android:layout_height="1dp"
-            android:layout_weight="1" />
+            <!-- Search icon -->
+            <ImageView
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:layout_marginStart="12dp"
+                android:src="@drawable/ic_search"
+                app:tint="@color/ui_text_secondary" />
+
+            <AutoCompleteTextView
+                android:id="@+id/search_autocomplete"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:background="@android:color/transparent"
+                android:hint="Search for origin location..."
+                android:imeOptions="actionSearch"
+                android:inputType="text"
+                android:paddingHorizontal="12dp"
+                android:textSize="16sp"
+                android:textColor="@color/ui_text_primary"
+                android:textColorHint="@color/ui_text_hint"
+                android:fontFamily="sans-serif-medium"
+                android:completionThreshold="1"
+                android:dropDownHeight="wrap_content"
+                android:dropDownWidth="match_parent"
+                android:popupBackground="@drawable/search_dropdown_bg"
+                android:dropDownVerticalOffset="4dp"
+                android:popupElevation="12dp" />
+
+            <!-- Database toggle only -->
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/database_search_toggle"
+                android:layout_width="wrap_content"
+                android:layout_height="44dp"
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="12dp"
+                android:text="DB"
+                android:textSize="11sp"
+                android:textColor="@color/ui_text_primary"
+                android:thumbTint="#2196F3"
+                android:trackTint="@color/ui_divider"
+                android:contentDescription="Toggle database search" />
+
+        </LinearLayout>
 
     </LinearLayout>
 
-    <!-- Search Suggestions Area -->
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:background="@android:color/white" />
-
-</LinearLayout>
+</FrameLayout>

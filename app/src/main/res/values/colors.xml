@@ -2,6 +2,30 @@
 <resources>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+
+    <!-- Semantic surface / background colors (dark theme overrides in values-night) -->
+    <color name="ui_background">#FFFFFFFF</color>
+    <color name="ui_surface">#FFFFFFFF</color>
+    <color name="ui_surface_variant">#FFFAFAFA</color>
+    <color name="ui_card">#FFF9F9FB</color>
+    <color name="ui_surface_container">#FFF3F4F6</color>
+    <color name="ui_input_background">#FFF5F5F5</color>
+    <color name="ui_divider">#E0E0E0</color>
+    <color name="ui_border">#EBEBEE</color>
+    <color name="scrim">#66000000</color>
+
+    <!-- Semantic text colors -->
+    <color name="ui_text_primary">#111318</color>
+    <color name="ui_text_secondary">#4A4F57</color>
+    <color name="ui_text_hint">#71757E</color>
+    <color name="ui_text_on_accent">#FFFFFFFF</color>
+
+    <!-- Icon tint colors -->
+    <color name="icon_tint">#1A1A1A</color>
+
+    <!-- FAB / dynamic surfaces -->
+    <color name="fab_background">#FFFFFFFF</color>
+    <color name="fab_icon">#1557B0</color>
     <!-- Material dynamic colors for dashboard -->
     <color name="material_dynamic_primary90">#E3F2FD</color>
     <color name="material_dynamic_primary40">#1976D2</color>

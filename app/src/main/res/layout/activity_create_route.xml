@@ -4,7 +4,7 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:padding="16dp"
-    android:background="#F5F5F5">
+    android:background="@color/ui_background">
 
     <!-- Origin Input -->
     <Switch
@@ -23,7 +23,7 @@
         android:hint="@string/enter_origin"
         android:padding="12dp"
         android:background="@android:drawable/editbox_background"
-        android:textColor="#333"
+        android:textColor="@color/ui_text_primary"
         android:textSize="16sp" />
 
     <!-- Destination Input -->
@@ -34,7 +34,7 @@
         android:hint="@string/enter_destination"
         android:padding="12dp"
         android:background="@android:drawable/editbox_background"
-        android:textColor="#333"
+        android:textColor="@color/ui_text_primary"
         android:textSize="16sp"
         android:layout_marginTop="8dp" />
 
@@ -48,7 +48,7 @@
         android:inputType="numberDecimal"
         android:padding="12dp"
         android:background="@android:drawable/editbox_background"
-        android:textColor="#333"
+        android:textColor="@color/ui_text_primary"
         android:textSize="16sp"
         android:layout_marginTop="8dp" />
 
@@ -108,22 +108,11 @@
         android:layout_marginTop="12dp"
         android:background="@android:color/darker_gray">
 
-        <!-- Google Map -->
-        <com.google.android.gms.maps.MapView
+        <!-- MapLibre GL Map -->
+        <org.maplibre.android.maps.MapView
             android:id="@+id/map_view"
             android:layout_width="match_parent"
             android:layout_height="match_parent" />
-
-        <!-- Toggle Map Type Button -->
-        <ImageButton
-            android:id="@+id/map_type_toggle_button"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:layout_gravity="top|start"
-            android:layout_margin="16dp"
-            android:background="@drawable/circular_button_background"
-            android:src="@drawable/ic_satellite_view"
-            android:contentDescription="@string/toggle_map_view" />
     </FrameLayout>
 
 </LinearLayout>

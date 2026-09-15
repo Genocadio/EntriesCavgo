@@ -84,6 +84,7 @@ class PlaceManagementActivity : AppCompatActivity() {
         intent.putExtra("longitude", place.longitude)
         intent.putExtra("place_name", place.placeName)
         intent.putExtra("custom_name", place.customName)
+        intent.putExtra("district", place.customDistrict)
         startActivity(intent)
     }
 

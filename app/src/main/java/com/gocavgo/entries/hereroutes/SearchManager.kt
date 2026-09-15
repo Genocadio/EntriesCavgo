@@ -2,83 +2,81 @@ package com.gocavgo.entries.hereroutes
 
 import android.content.Context
 import android.util.Log
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
 import android.widget.ArrayAdapter
 import android.widget.AutoCompleteTextView
 import android.widget.Filter
-import com.here.sdk.core.GeoCoordinates
-import com.here.sdk.core.LanguageCode
-import com.here.sdk.core.errors.InstantiationErrorException
-import com.here.sdk.search.Place
-import com.here.sdk.search.SearchCallback
-import com.here.sdk.search.SearchEngine
-import com.here.sdk.search.SearchError
-import com.here.sdk.search.SearchOptions
-import com.here.sdk.search.SuggestCallback
-import com.here.sdk.search.Suggestion
-import com.here.sdk.search.TextQuery
+import android.widget.TextView
+import com.gocavgo.entries.R
+import com.gocavgo.entries.model.LocationIqResult
+import com.gocavgo.entries.service.LocationIqClient
 import com.gocavgo.entries.service.RemoteDataManager
 import com.gocavgo.entries.service.RemoteResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 class SearchManager(private val context: Context) {
 
-    private lateinit var searchEngine: SearchEngine
     private val TAG = SearchManager::class.java.simpleName
     private val remoteDataManager = RemoteDataManager.getInstance()
     private val searchScope = CoroutineScope(Dispatchers.Main)
 
-    // Search related variables
-    val suggestions = arrayListOf<Suggestion>()
+    // LocationIQ client — initialized with token from BuildConfig
+    private val locationIqClient: LocationIqClient by lazy {
+        val token = try {
+            val field = com.gocavgo.entries.BuildConfig::class.java.getField("LOCATIONIQ_API_KEY")
+            field.get(null) as String
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get LOCATIONIQ_API_KEY from BuildConfig", e)
+            ""
+        }
+        LocationIqClient(token)
+    }
+
+    // Search state
+    val locationIqResults = arrayListOf<LocationIqResult>()
     var onDbPlaceSelected: ((DbPlace) -> Unit)? = null
     lateinit var suggestionsAdapter: ArrayAdapter<String>
     var isUserInput = true
+    private var autoCompleteTextView: AutoCompleteTextView? = null
+
+    // Debounce jobs — cancel previous search when a new keystroke arrives
+    private var autocompleteJob: Job? = null
+    private var dbSearchJob: Job? = null
+    private val DEBOUNCE_MS = 350L
 
     // Callbacks
-    var onPlaceSelected: ((Place) -> Unit)? = null
+    var onPlaceSelected: ((LocationIqResult) -> Unit)? = null
     var onSearchError: ((String) -> Unit)? = null
     var onSuggestionsUpdated: ((List<String>) -> Unit)? = null
     private val dbSearchResults = arrayListOf<DbPlace>()
 
-
     init {
-        initializeSearchEngine()
         initializeSuggestionsAdapter()
     }
 
     fun performDatabaseSearch(query: String) {
         Log.d(TAG, "Performing database search for: $query")
 
-        searchScope.launch {
+        dbSearchJob?.cancel()
+        dbSearchJob = searchScope.launch {
+            delay(DEBOUNCE_MS)
             try {
-                // Request up to 10 results but we'll limit display to 7
                 when (val result = remoteDataManager.getLocations(search = query, limit = 10)) {
                     is RemoteResult.Success -> {
                         val dbPlaces = result.data.data
                         Log.d(TAG, "Database search returned ${dbPlaces.size} results")
 
                         if (dbPlaces.isNotEmpty()) {
-                            // Limit to 7 suggestions max, or show all if fewer than 7
-                            val limitedDbPlaces = if (dbPlaces.size > 7) {
-                                dbPlaces.take(7)
-                            } else {
-                                dbPlaces
-                            }
-
-                            // Convert DbPlace results to display format with improved formatting
-                            val suggestionTitles = limitedDbPlaces.map { dbPlace ->
-                                formatDbPlaceSuggestion(dbPlace)
-                            }
-
-                            Log.d(TAG, "Displaying ${suggestionTitles.size} suggestions: $suggestionTitles")
-
-                            // Store DbPlaces in a way that can be retrieved by index
+                            val limitedDbPlaces = if (dbPlaces.size > 7) dbPlaces.take(7) else dbPlaces
+                            val suggestionTitles = limitedDbPlaces.map { dbPlace -> formatDbPlaceSuggestion(dbPlace) }
                             updateDatabaseSuggestions(suggestionTitles, limitedDbPlaces)
-
                         } else {
-                            Log.d(TAG, "No database results found for: $query")
                             clearSuggestions()
                         }
                     }
@@ -99,303 +97,194 @@ class SearchManager(private val context: Context) {
     private fun updateDatabaseSuggestions(suggestionTitles: List<String>, dbPlaces: List<DbPlace>) {
         dbSearchResults.clear()
         dbSearchResults.addAll(dbPlaces)
-
         updateSuggestions(suggestionTitles)
     }
 
-    /**
-     * Format DbPlace for display in suggestions with clear distinction between custom and original names
-     */
     private fun formatDbPlaceSuggestion(dbPlace: DbPlace): String {
         val originalName = dbPlace.placeName
         val customName = dbPlace.customName
         val district = dbPlace.displayDistrict
 
         return when {
-            // If there's a custom name and it's different from the original
             !customName.isNullOrBlank() && customName != originalName -> {
-                if (district != null) {
-                    "$customName - $district"
-                } else {
-                    customName
-                }
+                if (district != null) "$customName - $district" else customName
             }
-            // If no custom name or custom name is same as original, show Google place name
             else -> {
-                if (district != null) {
-                    "$originalName - $district"
-                } else {
-                    originalName
-                }
+                if (district != null) "$originalName - $district" else originalName
             }
-        }
-    }
-
-    private fun initializeSearchEngine() {
-        try {
-            searchEngine = SearchEngine()
-        } catch (e: InstantiationErrorException) {
-            throw RuntimeException("Initialization of SearchEngine failed: " + e.error.name)
         }
     }
 
     private fun initializeSuggestionsAdapter() {
         suggestionsAdapter = object : ArrayAdapter<String>(
-            context,
-            android.R.layout.simple_dropdown_item_1line,
-            arrayListOf<String>()
+            context, R.layout.search_suggestion_item, arrayListOf<String>()
         ) {
             override fun getFilter(): Filter {
                 return object : Filter() {
                     override fun performFiltering(constraint: CharSequence?): FilterResults {
-                        // Don't filter - return all items as we handle filtering ourselves
                         val results = FilterResults()
-                        val allItems = mutableListOf<String>()
+                        val items = ArrayList<String>()
                         for (i in 0 until count) {
-                            getItem(i)?.let { allItems.add(it) }
+                            val item = getItem(i) ?: continue
+                            items.add(item)
                         }
-                        results.values = allItems
-                        results.count = allItems.size
+                        results.values = items
+                        results.count = items.size
                         return results
                     }
 
-                    @Suppress("UNCHECKED_CAST")
-                    override fun publishResults(constraint: CharSequence?, results: FilterResults?) {
-                        if (results?.count ?: 0 > 0) {
-                            notifyDataSetChanged()
-                        } else {
-                            notifyDataSetInvalidated()
-                        }
+                    override fun publishResults(constraint: CharSequence?, results: FilterResults) {
+                        notifyDataSetChanged()
                     }
                 }
+            }
+
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                return createCustomView(position, convertView, parent)
+            }
+
+            override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View {
+                return createCustomView(position, convertView, parent)
+            }
+
+            private fun createCustomView(position: Int, convertView: View?, parent: ViewGroup): View {
+                val view = convertView ?: LayoutInflater.from(context)
+                    .inflate(R.layout.search_suggestion_item, parent, false)
+                val text = getItem(position) ?: ""
+                val title = view.findViewById<TextView>(R.id.suggestion_title)
+                val subtitle = view.findViewById<TextView>(R.id.suggestion_subtitle)
+
+                val parts = text.split(" - ", limit = 2)
+                title.text = parts[0].trim()
+                if (parts.size > 1 && parts[1].isNotBlank()) {
+                    subtitle.text = parts[1].trim()
+                    subtitle.visibility = View.VISIBLE
+                } else {
+                    subtitle.visibility = View.GONE
+                }
+
+                return view
             }
         }
     }
 
     fun setupAutoCompleteTextView(searchAutoComplete: AutoCompleteTextView) {
+        autoCompleteTextView = searchAutoComplete
         searchAutoComplete.setAdapter(suggestionsAdapter)
-        searchAutoComplete.threshold = 1
+        searchAutoComplete.threshold = SearchManager.MIN_SEARCH_LENGTH
 
-        // Keep suggestions visible when focused
-        searchAutoComplete.setOnFocusChangeListener { view, hasFocus ->
+        searchAutoComplete.setOnFocusChangeListener { _, hasFocus ->
             if (hasFocus && searchAutoComplete.text.isNotEmpty() && suggestionsAdapter.count > 0) {
                 searchAutoComplete.showDropDown()
             }
         }
 
-        // Show dropdown when clicking on the field
         searchAutoComplete.setOnClickListener {
             if (searchAutoComplete.text.isNotEmpty() && suggestionsAdapter.count > 0) {
                 searchAutoComplete.showDropDown()
             }
         }
 
-        // Handle item selection from suggestions
-        searchAutoComplete.setOnItemClickListener { parent, view, position, id ->
-            Log.d(TAG, "Suggestion item clicked at position: $position")
-
+        searchAutoComplete.setOnItemClickListener { _, _, position, _ ->
             isUserInput = false
 
-            // Check if we're in database search mode and have database results
+            // Check if we have database results
             if (dbSearchResults.isNotEmpty() && position < dbSearchResults.size) {
                 val selectedDbPlace = dbSearchResults[position]
-                // Use getName() which returns custom name if available, otherwise original name
                 val placeName = selectedDbPlace.getName()
-
-                Log.d(TAG, "Selected database place: $placeName ${selectedDbPlace.id}")
-                Log.d(TAG, "Selected database place ID: ${selectedDbPlace.id}")
                 searchAutoComplete.setText(placeName)
-
-                // Invoke database place selection callback
                 onDbPlaceSelected?.invoke(selectedDbPlace)
-
-                // Clear suggestions and dropdown
                 clearSuggestions()
                 searchAutoComplete.dismissDropDown()
-                Log.d(TAG, "Database place selected - suggestions cleared")
-
-            } else if (position < suggestions.size) {
-                // Original HERE SDK suggestion handling
-                val selectedSuggestion = suggestions[position]
-                val suggestionTitle = selectedSuggestion.title
-
-                Log.d(TAG, "Selected HERE suggestion: $suggestionTitle")
-                searchAutoComplete.setText(suggestionTitle)
-
-                selectedSuggestion.place?.let { place ->
-                    place.geoCoordinates?.let { coordinates ->
-                        Log.d(TAG, "Place selected from HERE suggestion: ${place.title} at $coordinates")
-                        onPlaceSelected?.invoke(place)
-                    }
-                } ?: run {
-                    Log.d(TAG, "No place in HERE suggestion, performing text search")
-                    performTextSearch(suggestionTitle, searchAutoComplete)
-                }
-
+            } else if (position < locationIqResults.size) {
+                // LocationIQ result
+                val result = locationIqResults[position]
+                searchAutoComplete.setText(result.placeName)
+                onPlaceSelected?.invoke(result)
                 clearSuggestions()
                 searchAutoComplete.dismissDropDown()
-                Log.d(TAG, "HERE suggestion selected - suggestions cleared")
-
-            } else {
-                Log.w(TAG, "Invalid suggestion position: $position")
             }
 
             isUserInput = true
         }
 
-        // Handle search action
-        searchAutoComplete.setOnEditorActionListener { textView, actionId, event ->
+        searchAutoComplete.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH) {
-                val query = searchAutoComplete.text.toString().trim()
-                Log.d(TAG, "Search action triggered with query: $query")
-
-                // Hide keyboard but keep suggestions visible
                 searchAutoComplete.post {
-                    if (suggestionsAdapter.count > 0) {
-                        searchAutoComplete.showDropDown()
-                        Log.d(TAG, "Dropdown reshown after hiding keyboard")
-                    }
+                    if (suggestionsAdapter.count > 0) searchAutoComplete.showDropDown()
                 }
-
-                Log.d(TAG, "Search button pressed - keyboard hidden but suggestions kept visible")
                 true
+            } else false
+        }
+    }
+
+    /**
+     * Perform LocationIQ autocomplete search
+     */
+    fun performAutoSuggest(query: String) {
+        autocompleteJob?.cancel()
+        autocompleteJob = searchScope.launch {
+            delay(DEBOUNCE_MS)
+            val results = locationIqClient.autocomplete(query, limit = 10, countryCodes = "rw")
+            locationIqResults.clear()
+            locationIqResults.addAll(results)
+
+            val titles = results.map { result ->
+                val place = result.placeName
+                val address = result.displayAddress
+                if (address.isNotEmpty() && address != place) "$place - $address" else place
+            }.filter { it.isNotEmpty() }
+
+            updateSuggestions(titles)
+        }
+    }
+
+    /**
+     * Forward search via LocationIQ
+     */
+    fun performTextSearch(query: String) {
+        searchScope.launch {
+            val results = locationIqClient.search(query, limit = 10, countryCodes = "rw")
+            if (results.isNotEmpty()) {
+                onPlaceSelected?.invoke(results.first())
             } else {
-                false
+                onSearchError?.invoke("No results found for '$query'")
             }
         }
-    }
-
-    fun performAutoSuggest(query: String, centerCoordinates: GeoCoordinates) {
-        val searchOptions = SearchOptions().apply {
-            languageCode = LanguageCode.EN_US
-            maxItems = 10
-        }
-
-        val textQuery = TextQuery(query, TextQuery.Area(centerCoordinates))
-
-        searchEngine.suggestByText(textQuery, searchOptions, object : SuggestCallback {
-            override fun onSuggestCompleted(searchError: SearchError?, list: List<Suggestion>?) {
-                if (searchError != null) {
-                    Log.d(TAG, "Autosuggest Error: ${searchError.name}")
-                    clearSuggestions()
-                    return
-                }
-
-                list?.let { suggestionList ->
-                    Log.d(TAG, "Received ${suggestionList.size} suggestions for query: $query")
-
-                    suggestions.clear()
-                    suggestions.addAll(suggestionList)
-
-                    val suggestionTitles = suggestionList.mapNotNull { suggestion ->
-                        val title = suggestion.title
-                        val place = suggestion.place
-
-                        when {
-                            place != null -> {
-                                val address = place.address.addressText
-                                if (address.isNotEmpty() && address != title) {
-                                    "$title - $address"
-                                } else {
-                                    title
-                                }
-                            }
-                            title.isNotEmpty() -> title
-                            else -> null
-                        }
-                    }.filter { it.isNotEmpty() }
-
-                    updateSuggestions(suggestionTitles)
-                } ?: run {
-                    Log.d(TAG, "Suggestion list is null")
-                    clearSuggestions()
-                }
-            }
-        })
-    }
-
-    fun performTextSearch(query: String, searchAutoComplete: AutoCompleteTextView) {
-        Log.d(TAG, "Performing text search for: $query")
-
-        // We need center coordinates from the calling activity
-        // This will be provided through a callback
-        onTextSearchRequested?.invoke(query)
-    }
-
-    var onTextSearchRequested: ((String) -> Unit)? = null
-
-    fun executeTextSearch(query: String, centerCoordinates: GeoCoordinates) {
-        val searchOptions = SearchOptions().apply {
-            languageCode = LanguageCode.EN_US
-            maxItems = 20
-        }
-
-        val textQuery = TextQuery(query, TextQuery.Area(centerCoordinates))
-
-        searchEngine.searchByText(textQuery, searchOptions, object : SearchCallback {
-            override fun onSearchCompleted(searchError: SearchError?, list: List<Place>?) {
-                if (searchError != null) {
-                    Log.e(TAG, "Search Error: ${searchError.name}")
-                    onSearchError?.invoke("Search failed: ${searchError.name}")
-                    return
-                }
-
-                list?.let { places ->
-                    Log.d(TAG, "Search completed with ${places.size} results")
-
-                    if (places.isNotEmpty()) {
-                        val firstPlace = places[0]
-                        Log.d(TAG, "First search result: ${firstPlace.title} at ${firstPlace.geoCoordinates}")
-                        firstPlace.geoCoordinates?.let { coordinates ->
-                            onPlaceSelected?.invoke(firstPlace)
-                        }
-                    } else {
-                        Log.d(TAG, "No search results found")
-                        onSearchError?.invoke("No results found for '$query'")
-                    }
-                } ?: run {
-                    Log.e(TAG, "Search results list is null")
-                    onSearchError?.invoke("Search failed: No results")
-                }
-            }
-        })
     }
 
     private fun updateSuggestions(suggestionTitles: List<String>) {
-        Log.d(TAG, "updateSuggestions called with ${suggestionTitles.size} titles")
         suggestionsAdapter.clear()
-        Log.d(TAG, "Adapter cleared. Count after clear: ${suggestionsAdapter.count}")
-        
         if (suggestionTitles.isNotEmpty()) {
-            suggestionTitles.forEachIndexed { index, title ->
-                Log.d(TAG, "Adding suggestion $index: $title")
-                suggestionsAdapter.add(title)
-            }
-            Log.d(TAG, "Added ${suggestionTitles.size} suggestion titles to adapter")
-            Log.d(TAG, "Suggestion titles: $suggestionTitles")
-            Log.d(TAG, "Adapter count after adding: ${suggestionsAdapter.count}")
+            suggestionsAdapter.addAll(suggestionTitles)
             onSuggestionsUpdated?.invoke(suggestionTitles)
-        } else {
-            Log.d(TAG, "No valid suggestion titles found")
+            autoCompleteTextView?.let { showDropdown(it) }
         }
-        suggestionsAdapter.notifyDataSetChanged()
-        Log.d(TAG, "Adapter notified of data change. Final adapter count: ${suggestionsAdapter.count}")
     }
 
     fun clearSuggestions() {
-        suggestions.clear()
-        dbSearchResults.clear()  // Add this line
+        autocompleteJob?.cancel()
+        dbSearchJob?.cancel()
+        locationIqResults.clear()
+        dbSearchResults.clear()
         suggestionsAdapter.clear()
-        suggestionsAdapter.notifyDataSetChanged()
     }
+
     fun showDropdown(searchAutoComplete: AutoCompleteTextView) {
-        Log.d(TAG, "showDropdown called. Adapter count: ${suggestionsAdapter.count}")
         if (suggestionsAdapter.count > 0) {
+            // Re-run the adapter filter so the popup discards its stale
+            // (empty) snapshot and repopulates from the freshly added data.
+            if (!searchAutoComplete.isPopupShowing) {
+                val text = searchAutoComplete.text?.toString() ?: ""
+                suggestionsAdapter.filter.filter(text)
+            }
             searchAutoComplete.showDropDown()
-            Log.d(TAG, "Dropdown shown with ${suggestionsAdapter.count} suggestions")
         } else {
             searchAutoComplete.dismissDropDown()
-            Log.d(TAG, "No suggestions - dropdown dismissed")
         }
+    }
+
+    companion object {
+        const val MIN_SEARCH_LENGTH = 3
     }
 }

@@ -12,39 +12,28 @@
     app:layout_constraintEnd_toEndOf="parent"
     app:layout_constraintStart_toStartOf="parent">
 
-    <!-- Compact Search Bar (when not active) -->
+    <!-- Compact Search Trigger (hidden, replaced by FAB in main layout) -->
     <LinearLayout
         android:id="@+id/search_container"
-        android:layout_width="match_parent"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_margin="16dp"
-        android:background="@drawable/modern_search_bar"
-        android:elevation="2dp"
+        android:layout_gravity="center_horizontal"
         android:orientation="horizontal"
-        android:padding="12dp">
+        android:visibility="gone" />
 
-        <ImageView
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:layout_gravity="center_vertical"
-            android:layout_marginStart="8dp"
-            android:src="@android:drawable/ic_menu_search"
-            app:tint="#757575" />
+    <!-- Hidden TextViews needed by UIController -->
+    <TextView
+        android:id="@+id/search_hint_text"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:visibility="gone"
+        android:text="Search pickup location" />
 
-        <TextView
-            android:id="@+id/search_hint_text"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:background="@android:color/transparent"
-            android:fontFamily="sans-serif-medium"
-            android:gravity="center_vertical"
-            android:padding="12dp"
-            android:text="Search for origin location..."
-            android:textColor="#757575"
-            android:textSize="16sp" />
-
-    </LinearLayout>
+    <ImageButton
+        android:id="@+id/clear_search"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:visibility="gone" />
 
     <!-- Place Details Container (Single Location) -->
     <LinearLayout
@@ -57,6 +46,7 @@
 
         <!-- Place Info -->
         <LinearLayout
+            android:id="@+id/place_info_block"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
@@ -68,7 +58,7 @@
                 android:layout_height="wrap_content"
                 android:textSize="20sp"
                 android:textStyle="bold"
-                android:textColor="#1A1A1A"
+                android:textColor="@color/ui_text_primary"
                 android:fontFamily="sans-serif-medium"
                 android:maxLines="2"
                 android:ellipsize="end"
@@ -81,7 +71,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
                 android:textSize="15sp"
-                android:textColor="#616161"
+                android:textColor="@color/ui_text_secondary"
                 android:fontFamily="sans-serif"
                 android:maxLines="2"
                 android:ellipsize="end"
@@ -101,6 +91,105 @@
                 android:fontFamily="sans-serif-medium"
                 android:visibility="gone"
                 tools:text="Restaurant" />
+
+        </LinearLayout>
+
+        <!-- Inline Place Edit Form (single tap on marker) -->
+        <LinearLayout
+            android:id="@+id/place_edit_container"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="12dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Edit Place Details"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+android:textColor="@color/ui_text_primary"
+                    android:fontFamily="sans-serif-medium" />
+
+                <ImageButton
+                    android:id="@+id/btn_place_edit_menu"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:background="@drawable/modern_round_icon_button"
+                    android:src="@drawable/ic_more_vert"
+                    android:contentDescription="Marker options"
+                    android:padding="8dp" />
+
+            </LinearLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:hint="Custom Name"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/et_place_custom_name"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="textCapWords"
+                    android:maxLines="1" />
+
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:hint="Place Name"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/et_place_name"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="textCapWords"
+                    android:maxLines="1" />
+
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                android:hint="District"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.ExposedDropdownMenu">
+
+                <AutoCompleteTextView
+                    android:id="@+id/spinner_place_district"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="none"
+                    android:focusable="false"
+                    android:completionThreshold="1"
+                    android:dropDownHeight="200dp" />
+
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <Button
+                android:id="@+id/btn_save_place"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:background="@drawable/modern_button_primary"
+                android:text="Save Place"
+                android:textColor="@android:color/white"
+                android:textSize="14sp"
+                android:fontFamily="sans-serif-medium"
+                android:elevation="3dp" />
 
         </LinearLayout>
 

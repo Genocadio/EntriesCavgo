@@ -5,91 +5,164 @@ import android.annotation.SuppressLint
 import android.app.AlertDialog
 import android.content.Context
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.drawable.VectorDrawable
+import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
 import androidx.annotation.RequiresPermission
 import androidx.core.content.ContextCompat
 import com.gocavgo.entries.R
 import com.google.android.gms.location.FusedLocationProviderClient
-import com.here.sdk.core.*
-import com.here.sdk.gestures.GestureState
-import com.here.sdk.gestures.LongPressListener
-import com.here.sdk.gestures.TapListener
-import com.here.sdk.mapview.*
-import java.io.ByteArrayOutputStream
-import java.util.*
-import kotlin.collections.ArrayList
-import androidx.core.graphics.createBitmap
+import org.maplibre.android.camera.CameraPosition
+import org.maplibre.android.camera.CameraUpdateFactory
+import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.geometry.LatLngBounds
+import org.maplibre.android.location.LocationComponentActivationOptions
+import org.maplibre.android.location.modes.CameraMode
+import org.maplibre.android.location.modes.RenderMode
+import org.maplibre.android.maps.MapView
+import org.maplibre.android.maps.MapLibreMap
+import org.maplibre.android.maps.Style
+import org.maplibre.android.annotations.PolylineOptions
 
 class MapController(
     private val context: Context,
     private val mapView: MapView,
-    private val mapStyleFab: com.google.android.material.floatingactionbutton.FloatingActionButton,
-    private val myLocationFab: com.google.android.material.floatingactionbutton.FloatingActionButton,
+    private val mapStyleFab: com.google.android.material.floatingactionbutton.FloatingActionButton? = null,
+    private val myLocationFab: com.google.android.material.floatingactionbutton.FloatingActionButton? = null,
     private val locationClient: FusedLocationProviderClient,
-    private val mapSchemes: List<MapScheme>,
-    private val mapSchemeNames: List<String>
+    @Suppress("UNUSED_PARAMETER") styleUrls: List<String> = emptyList(),
+    @Suppress("UNUSED_PARAMETER") styleNames: List<String> = emptyList(),
+    @Suppress("UNUSED_PARAMETER") tileExtension: String = ""
 ) {
     private val TAG = MapController::class.java.simpleName
-    private val locationIndicatorList = arrayListOf<LocationIndicator>()
-    private val searchMarkers = arrayListOf<MapMarker>()
-    private var currentSchemeIndex = 0
+    private var map: MapLibreMap? = null
+    private var style: Style? = null
 
-    // Marker movement variables
+    private val arcGisSatelliteStyle = "asset://satellite_style.json"
+
     private var isMovingMarker = false
-    private var markerToMove: MapMarker? = null
+    private var markerToMove: Marker? = null
     private var moveStatusText: android.widget.TextView? = null
 
-    // Callbacks
-    var onLocationReceived: ((GeoCoordinates) -> Unit)? = null
-    var onMarkerActionRequested: ((String, MapMarker) -> Unit)? = null
-    var onMarkerMoved: ((MapMarker, GeoCoordinates) -> Unit)? = null
-    var onMapLongPress: ((GeoCoordinates) -> Unit)? = null
+    var onLocationReceived: ((LatLng) -> Unit)? = null
+    var onMarkerActionRequested: ((String, Marker) -> Unit)? = null
+    var onMarkerMoved: ((Marker, LatLng) -> Unit)? = null
+    var onMapLongPress: ((LatLng) -> Unit)? = null
+    var onMapReady: (() -> Unit)? = null
+    val isMapReady: Boolean get() = map != null
 
-    // Cache for converted marker images to avoid repeated conversions
-    private val markerImageCache = mutableMapOf<Int, MapImage>()
-
-    init {
-        setupMapStyleButton()
-        setupMyLocationButton()
-        setupGestureHandlers()
-        createMoveStatusText()
+    private val iconCache = mutableMapOf<Int, org.maplibre.android.annotations.Icon>()
+    private val searchMarkers = mutableListOf<Marker>()
+    private var locationMarker: Marker? = null
+    private val iconFactory: org.maplibre.android.annotations.IconFactory by lazy {
+        org.maplibre.android.annotations.IconFactory.getInstance(context)
     }
 
-    private fun setupMapStyleButton() {
-        currentSchemeIndex = getTimeBasedSchemeIndex()
-
-        mapStyleFab.setOnClickListener {
-            currentSchemeIndex = (currentSchemeIndex + 1) % mapSchemes.size
-            changeMapScheme(mapSchemes[currentSchemeIndex])
-            Toast.makeText(context, mapSchemeNames[currentSchemeIndex], Toast.LENGTH_SHORT).show()
+    private fun iconForResource(resId: Int): org.maplibre.android.annotations.Icon {
+        return iconCache.getOrPut(resId) {
+            iconFactory.fromBitmap(MapMarkerIcons.renderMarkerBitmap(resId, context))
         }
     }
 
+    init {
+        mapView.onCreate(null)
+        mapView.getMapAsync { mapInstance ->
+            map = mapInstance
+            mapInstance.uiSettings.isLogoEnabled = false
+            mapInstance.uiSettings.isAttributionEnabled = false
+            mapInstance.setStyle(Style.Builder().fromUri(arcGisSatelliteStyle)) { styleInstance ->
+                style = styleInstance
+                setupLocationComponent(mapInstance, styleInstance)
+                mapInstance.cameraPosition = CameraPosition.Builder()
+                    .target(LatLng(-1.9403, 29.8739))
+                    .zoom(13.0)
+                    .build()
+                setupGestureHandlers()
+                setupMyLocationButton()
+                createMoveStatusText()
+                Log.d(TAG, "MapController initialized with MapLibre (ArcGIS satellite)")
+                onMapReady?.invoke()
+            }
+        }
+        mapStyleFab?.visibility = android.view.View.GONE
+    }
+
+    private fun setupLocationComponent(mapInstance: MapLibreMap, styleInstance: Style) {
+        try {
+            val permission = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION)
+            if (permission == PackageManager.PERMISSION_GRANTED) {
+                val options = LocationComponentActivationOptions.Builder(context, styleInstance).build()
+                mapInstance.locationComponent.activateLocationComponent(options)
+                mapInstance.locationComponent.isLocationComponentEnabled = true
+                mapInstance.locationComponent.cameraMode = CameraMode.NONE
+                mapInstance.locationComponent.renderMode = RenderMode.NORMAL
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Location component setup failed: ${e.message}")
+        }
+    }
+
+    private fun setupGestureHandlers() {
+        val mapInstance = map ?: return
+        mapInstance.addOnMapLongClickListener { latLng ->
+            if (isMovingMarker && markerToMove != null) {
+                moveMarkerToLocation(latLng)
+            } else {
+                val nearMarker = findMarkerNear(latLng, 60f)
+                if (nearMarker != null) {
+                    onMarkerActionRequested?.invoke("show_options", nearMarker)
+                } else {
+                    onMapLongPress?.invoke(latLng)
+                }
+            }
+            true
+        }
+        mapInstance.setOnMarkerClickListener(object : org.maplibre.android.maps.MapLibreMap.OnMarkerClickListener {
+            override fun onMarkerClick(rawMarker: org.maplibre.android.annotations.Marker): Boolean {
+                val wrapper = searchMarkers.find { it.mapMarker === rawMarker }
+                if (wrapper != null) {
+                    onMarkerActionRequested?.invoke("show_edit", wrapper)
+                }
+                return true
+            }
+        })
+    }
+
+    /** Finds the search marker whose screen position is within [tolerancePx] of [latLng]. */
+    fun findMarkerNear(latLng: LatLng, tolerancePx: Float = 60f): Marker? {
+        val mapInstance = map ?: return null
+        val touchPoint = mapInstance.projection.toScreenLocation(latLng)
+        var closest: Pair<Marker, Float>? = null
+        searchMarkers.forEach { marker ->
+            val markerPoint = marker.mapMarker?.let { mapInstance.projection.toScreenLocation(it.position) }
+                ?: mapInstance.projection.toScreenLocation(marker.position)
+            val distance = android.graphics.PointF(touchPoint.x - markerPoint.x, touchPoint.y - markerPoint.y).length()
+            if ((closest == null || distance < closest!!.second)) {
+                closest = marker to distance
+            }
+        }
+        val (marker, distance) = closest ?: return null
+        return if (distance <= tolerancePx) marker else null
+    }
+
     private fun setupMyLocationButton() {
-        myLocationFab.setOnClickListener {
+        val fab = myLocationFab ?: return
+        fab.setOnClickListener {
             if (isMovingMarker) {
                 cancelMarkerMove()
                 return@setOnClickListener
             }
 
-            val fineLocationPermission = ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            )
-            val coarseLocationPermission = ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.ACCESS_COARSE_LOCATION
-            )
+            val fineLocationPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION)
+            val coarseLocationPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION)
 
             if (fineLocationPermission == PackageManager.PERMISSION_GRANTED ||
                 coarseLocationPermission == PackageManager.PERMISSION_GRANTED) {
                 getLocation { coordinates ->
-                    coordinates?.let {
-                        onLocationReceived?.invoke(it)
+                    if (coordinates != null) {
+                        onLocationReceived?.invoke(coordinates)
+                    } else {
+                        Toast.makeText(context, "Unable to get current location", Toast.LENGTH_SHORT).show()
                     }
                 }
             } else {
@@ -98,32 +171,217 @@ class MapController(
         }
     }
 
-    private fun setupGestureHandlers() {
-        mapView.gestures.tapListener = TapListener { touchPoint ->
-            if (isMovingMarker) {
-                return@TapListener
-            }
+    fun loadMapScene(center: LatLng) {
+        map?.cameraPosition = CameraPosition.Builder()
+            .target(center)
+            .zoom(13.0)
+            .build()
+        showLocationIndicator(center)
+        Log.d(TAG, "Map scene loaded at $center")
+    }
 
-            val geoCoordinates = mapView.viewToGeoCoordinates(touchPoint)
-            Log.d(TAG, "Tap at: ${geoCoordinates?.latitude}, ${geoCoordinates?.longitude}")
-            pickMapMarker(touchPoint)
-        }
+    fun loadMapSceneWithoutIndicator(center: LatLng) {
+        map?.cameraPosition = CameraPosition.Builder()
+            .target(center)
+            .zoom(13.0)
+            .build()
+        Log.d(TAG, "Map scene loaded (no indicator) at $center")
+    }
 
-        mapView.gestures.longPressListener = LongPressListener { gestureState, touchPoint ->
-            if (gestureState == GestureState.BEGIN) {
-                val geoCoordinates = mapView.viewToGeoCoordinates(touchPoint)
-                Log.d(TAG, "LongPress detected at: $geoCoordinates")
+    fun clearAllMarkers() {
+        clearSearchMarkers()
+    }
 
-                if (isMovingMarker && markerToMove != null) {
-                    geoCoordinates?.let { newCoordinates ->
-                        moveMarkerToLocation(newCoordinates)
-                    }
-                } else {
-                    geoCoordinates?.let { coords ->
-                        onMapLongPress?.invoke(coords)
-                    }
+    fun clearSearchMarkers() {
+        val mapInstance = map ?: return
+        searchMarkers.forEach { marker -> marker.mapMarker?.let { mapInstance.removeMarker(it) } }
+        searchMarkers.clear()
+        Log.d(TAG, "Cleared search markers")
+    }
+
+    fun clearLocationIndicators() {
+        clearLocationIndicator()
+    }
+
+    /** Disables the live location component (removes the blue dot) once a location is pinned. */
+    fun hideLocationComponent() {
+        try {
+            map?.locationComponent?.let { component ->
+                if (component.isLocationComponentEnabled) {
+                    component.isLocationComponentEnabled = false
+                    Log.d(TAG, "Location component disabled (blue dot hidden)")
                 }
             }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to disable location component: ${e.message}")
+        }
+    }
+
+    fun addSearchMarker(coordinates: LatLng, dbPlace: DbPlace, markerType: String = "waypoint"): Marker {
+        val mapInstance = map ?: throw IllegalStateException("Map not initialized")
+        val marker = Marker(
+            position = coordinates,
+            title = dbPlace.getName(),
+            snippet = markerType,
+            icon = MapMarkerIcons.iconFor(markerType)
+        )
+        marker.mapMarker = mapInstance.addMarker(
+            org.maplibre.android.annotations.MarkerOptions()
+                .position(coordinates)
+                .title(dbPlace.getName())
+                .snippet(markerType)
+                .icon(drawableIconFor(markerType))
+        )
+        searchMarkers.add(marker)
+        Log.d(TAG, "Added $markerType marker: '${dbPlace.getName()}' at $coordinates")
+        return marker
+    }
+
+    fun addSearchMarker(coordinates: LatLng, title: String): Marker {
+        val mapInstance = map ?: throw IllegalStateException("Map not initialized")
+        val marker = Marker(
+            position = coordinates,
+            title = title,
+            snippet = "waypoint",
+            icon = MapMarkerIcons.iconFor("waypoint")
+        )
+        marker.mapMarker = mapInstance.addMarker(
+            org.maplibre.android.annotations.MarkerOptions()
+                .position(coordinates)
+                .title(title)
+                .snippet("waypoint")
+                .icon(drawableIconFor("waypoint"))
+        )
+        searchMarkers.add(marker)
+        Log.d(TAG, "Added legacy marker: '$title' at $coordinates")
+        return marker
+    }
+
+    /** Returns the [Icon] for the given marker type (origin / destination / waypoint / location). */
+    private fun drawableIconFor(markerType: String): org.maplibre.android.annotations.Icon {
+        val resId = when (markerType.lowercase()) {
+            "origin" -> R.drawable.ic_map_marker_red
+            "destination" -> R.drawable.ic_flag_marker_red
+            "mylocation" -> R.drawable.ic_my_location
+            else -> R.drawable.ic_map_marker_blue
+        }
+        return iconForResource(resId)
+    }
+
+    fun moveMapToLocation(coordinates: LatLng) {
+        map?.animateCamera(CameraUpdateFactory.newLatLng(coordinates))
+    }
+
+    fun showLocationIndicator(geoCoordinates: LatLng) {
+        val mapInstance = map ?: return
+        locationMarker?.mapMarker?.let { mapInstance.removeMarker(it) }
+        val marker = Marker(
+            position = geoCoordinates,
+            title = "My Location",
+            snippet = "mylocation",
+            icon = MapMarkerIcons.iconFor("mylocation")
+        )
+        marker.mapMarker = mapInstance.addMarker(
+            org.maplibre.android.annotations.MarkerOptions()
+                .position(geoCoordinates)
+                .title("My Location")
+                .snippet("mylocation")
+                .icon(drawableIconFor("mylocation"))
+        )
+        locationMarker = marker
+        Log.d(TAG, "Location indicator placed at $geoCoordinates")
+    }
+
+    fun clearLocationIndicator() {
+        locationMarker?.mapMarker?.let { map?.removeMarker(it) }
+        locationMarker = null
+    }
+
+    fun removeMarker(marker: Marker) {
+        marker.mapMarker?.let { map?.removeMarker(it) }
+        marker.mapMarker = null
+        searchMarkers.remove(marker)
+        val title = marker.title ?: "marker"
+        val snippet = marker.snippet ?: "location"
+        Toast.makeText(context, "Removed $snippet: $title", Toast.LENGTH_SHORT).show()
+        Log.d(TAG, "Marker removed: $snippet - $title")
+    }
+
+    @SuppressLint("SetTextI18n")
+    fun startMarkerMove(marker: Marker) {
+        isMovingMarker = true
+        markerToMove = marker
+        moveStatusText?.visibility = android.view.View.VISIBLE
+        moveStatusText?.text = "Moving '${marker.title}' - Long press on map to place at new location"
+        Toast.makeText(context, "Move mode activated for: ${marker.title}", Toast.LENGTH_SHORT).show()
+    }
+
+    fun editMarker(marker: Marker) {
+        val currentTitle = marker.title ?: "Unknown Location"
+        val editText = android.widget.EditText(context).apply {
+            setText(currentTitle)
+            selectAll()
+        }
+
+        AlertDialog.Builder(context)
+            .setTitle("Edit Marker Name")
+            .setView(editText)
+            .setPositiveButton("Save") { dialog, _ ->
+                val newTitle = editText.text.toString().trim()
+                if (newTitle.isNotEmpty()) {
+                    marker.title = newTitle
+                    Toast.makeText(context, "Marker renamed to: $newTitle", Toast.LENGTH_SHORT).show()
+                }
+                dialog.dismiss()
+            }
+            .setNegativeButton("Cancel") { dialog, _ -> dialog.dismiss() }
+            .show()
+    }
+
+    fun saveMarker(marker: Marker) {
+        val title = marker.title ?: "Unknown Location"
+        val snippet = marker.snippet ?: "location"
+        val pos = marker.position
+        Log.d(TAG, "Saved marker: $snippet - $title at ${pos.latitude}, ${pos.longitude}")
+        Toast.makeText(context, "Saved $snippet: $title", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun moveMarkerToLocation(newCoordinates: LatLng) {
+        markerToMove?.let { marker ->
+            val oldCoordinates = marker.position
+            val title = marker.title ?: "marker"
+            val snippet = marker.snippet ?: "location"
+
+            Log.d(TAG, "Moving marker '$title' from $oldCoordinates to $newCoordinates")
+
+            onMarkerMoved?.invoke(marker, newCoordinates)
+
+            marker.position = newCoordinates
+            map?.let { mapInstance ->
+                marker.mapMarker?.let { mapInstance.removeMarker(it) }
+                marker.mapMarker = mapInstance.addMarker(
+                    org.maplibre.android.annotations.MarkerOptions()
+                        .position(newCoordinates)
+                        .title(title)
+                        .snippet(snippet)
+                        .icon(drawableIconFor(snippet))
+                )
+            }
+            cancelMarkerMove()
+            Log.d(TAG, "Marker '$title' moved successfully")
+        }
+    }
+
+    fun cancelMarkerMove() {
+        isMovingMarker = false
+        markerToMove = null
+        moveStatusText?.visibility = android.view.View.GONE
+    }
+
+    fun findMarkerByCoordinates(lat: Double, lon: Double): Marker? {
+        return searchMarkers.find { marker ->
+            val pos = marker.position
+            kotlin.math.abs(pos.latitude - lat) < 0.0001 && kotlin.math.abs(pos.longitude - lon) < 0.0001
         }
     }
 
@@ -139,8 +397,7 @@ class MapController(
         }
 
         if (context is android.app.Activity) {
-            val mainLayout = context.findViewById<androidx.constraintlayout.widget.ConstraintLayout>(
-                R.id.manageroutes)
+            val mainLayout = context.findViewById<androidx.constraintlayout.widget.ConstraintLayout>(R.id.manageroutes)
             mainLayout?.addView(moveStatusText)
 
             val layoutParams = moveStatusText?.layoutParams as? androidx.constraintlayout.widget.ConstraintLayout.LayoutParams
@@ -154,248 +411,19 @@ class MapController(
         }
     }
 
-    /**
-     * Convert vector drawable to MapImage with proper scaling for different screen densities
-     */
-    private fun createMapImageFromVectorDrawable(drawableRes: Int, sizeInDp: Int = 32): MapImage {
-        // Check cache first
-        markerImageCache[drawableRes]?.let { return it }
-
-        try {
-            // Get the vector drawable
-            val vectorDrawable = ContextCompat.getDrawable(context, drawableRes) as? VectorDrawable
-                ?: throw IllegalArgumentException("Resource $drawableRes is not a VectorDrawable")
-
-            // Calculate size in pixels based on screen density
-            val density = context.resources.displayMetrics.density
-            val sizeInPixels = (sizeInDp * density).toInt()
-
-            // Create a bitmap from the vector drawable
-            val bitmap = createBitmap(sizeInPixels, sizeInPixels)
-
-            val canvas = Canvas(bitmap)
-            vectorDrawable.setBounds(0, 0, sizeInPixels, sizeInPixels)
-            vectorDrawable.draw(canvas)
-
-            // Convert bitmap to byte array
-            val stream = ByteArrayOutputStream()
-            bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
-            val byteArray = stream.toByteArray()
-
-            // Create MapImage from byte array
-            val mapImage = MapImage(byteArray, ImageFormat.PNG)
-
-            // Cache the result
-            markerImageCache[drawableRes] = mapImage
-
-            Log.d(TAG, "Created MapImage from vector drawable $drawableRes with size ${sizeInPixels}px (${sizeInDp}dp)")
-            return mapImage
-
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to create MapImage from vector drawable $drawableRes: ${e.message}")
-            // Fallback to system drawable
-            return MapImageFactory.fromResource(context.resources, android.R.drawable.ic_menu_mylocation)
-        }
-    }
-
-
-
-    fun loadMapScene(geoCoordinates: GeoCoordinates) {
-        val mapScheme = getTimeBasedMapScheme()
-        mapView.mapScene.loadScene(mapScheme) { mapError ->
-            if (mapError == null) {
-                val distanceInMeters = (1000 * 10).toDouble()
-                val mapMeasureZoom = MapMeasure(MapMeasure.Kind.DISTANCE_IN_METERS, distanceInMeters)
-                mapView.camera.lookAt(geoCoordinates, mapMeasureZoom)
-                showLocationIndicatorPedestrian(geoCoordinates)
-            } else {
-                Log.d(TAG, "Loading map failed: mapError: " + mapError.name)
-            }
-        }
-    }
-
-    fun loadMapSceneWithoutIndicator(geoCoordinates: GeoCoordinates) {
-        val mapScheme = getTimeBasedMapScheme()
-        mapView.mapScene.loadScene(mapScheme) { mapError ->
-            if (mapError == null) {
-                val distanceInMeters = (1000 * 10).toDouble()
-                val mapMeasureZoom = MapMeasure(MapMeasure.Kind.DISTANCE_IN_METERS, distanceInMeters)
-                mapView.camera.lookAt(geoCoordinates, mapMeasureZoom)
-            } else {
-                Log.d(TAG, "Loading map (no indicator) failed: mapError: " + mapError.name)
-            }
-        }
-    }
-
-    private fun changeMapScheme(mapScheme: MapScheme) {
-        mapView.mapScene.loadScene(mapScheme) { mapError ->
-            if (mapError == null) {
-                Log.d(TAG, "Map scheme changed successfully to: ${mapSchemeNames[currentSchemeIndex]}")
-            } else {
-                Log.d(TAG, "Failed to change map scheme: " + mapError.name)
-            }
-        }
-    }
-
-    /**
-     * Clear all markers including search markers and location indicators
-     */
-    fun clearAllMarkers() {
-        clearSearchMarkers() // Clear search result markers
-        clearLocationIndicators() // Clear location indicators
-    }
-
-    /**
-     * Clear all location indicators from the map
-     */
-    fun clearLocationIndicators() {
-        locationIndicatorList.forEach { locationIndicator ->
-            locationIndicator.disable()
-        }
-        locationIndicatorList.clear()
-        Log.d(TAG, "Cleared location indicators")
-    }
-    private fun getTimeBasedSchemeIndex(): Int {
-        val calendar = Calendar.getInstance()
-        val hour = calendar.get(Calendar.HOUR_OF_DAY)
-        return if (hour >= 18 || hour < 6) 1 else 0 // Night or Day
-    }
-
-    private fun getTimeBasedMapScheme(): MapScheme {
-        val calendar = Calendar.getInstance()
-        val hour = calendar.get(Calendar.HOUR_OF_DAY)
-        return if (hour >= 18 || hour < 6) {
-            MapScheme.NORMAL_NIGHT
-        } else {
-            MapScheme.NORMAL_DAY
-        }
-    }
-
-    /**
-     * Enhanced addSearchMarker method with marker type support and vector drawable conversion
-     * @param coordinates Location coordinates
-     * @param dbPlace DbPlace object containing place information
-     * @param markerType Type of marker: "origin", "destination", "waypoint"
-     */
-    fun addSearchMarker(coordinates: GeoCoordinates, dbPlace: DbPlace, markerType: String = "waypoint"): MapMarker {
-        try {
-            // Select appropriate marker image based on type
-            val markerDrawableRes = when (markerType.lowercase()) {
-                "origin" -> R.drawable.ic_map_marker_red
-                "destination" -> R.drawable.ic_flag_marker_red
-                "waypoint" -> R.drawable.ic_map_marker_blue
-                else -> R.drawable.ic_map_marker_blue // Default to blue for unknown types
-            }
-
-            // Create MapImage from vector drawable with proper scaling
-            val mapImage = createMapImageFromVectorDrawable(markerDrawableRes, 32) // 32dp size
-            val mapMarker = MapMarker(coordinates, mapImage, Anchor2D(0.5, 1.0))
-
-            // Use DbPlace.getName() for the marker title
-            val markerTitle = dbPlace.getName()
-
-            val metadata = Metadata()
-            metadata.setString("marker_title", markerTitle)
-            metadata.setString("marker_type", "search_result")
-            metadata.setString("location_type", markerType) // Store the location type
-            mapMarker.metadata = metadata
-
-            mapView.mapScene.addMapMarker(mapMarker)
-            searchMarkers.add(mapMarker)
-
-            Log.d(TAG, "Successfully added $markerType marker: '$markerTitle' at $coordinates")
-            return mapMarker
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to add search marker: ${e.message}")
-            throw e
-        }
-    }
-
-    /**
-     * Legacy method for backward compatibility - now uses DbPlace and vector drawable conversion
-     */
-    fun addSearchMarker(coordinates: GeoCoordinates, title: String): MapMarker {
-        try {
-            // Create MapImage from vector drawable with proper scaling
-            val mapImage = createMapImageFromVectorDrawable(R.drawable.ic_map_marker_blue, 32)
-            val mapMarker = MapMarker(coordinates, mapImage, Anchor2D(0.5, 1.0))
-
-            val metadata = Metadata()
-            metadata.setString("marker_title", title)
-            metadata.setString("marker_type", "search_result")
-            metadata.setString("location_type", "waypoint") // Default to waypoint
-            mapMarker.metadata = metadata
-
-            mapView.mapScene.addMapMarker(mapMarker)
-            searchMarkers.add(mapMarker)
-
-            Log.d(TAG, "Successfully added legacy marker: '$title' at $coordinates")
-            return mapMarker
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to add legacy search marker: ${e.message}")
-            throw e
-        }
-    }
-
-    fun clearSearchMarkers() {
-        searchMarkers.forEach { marker ->
-            mapView.mapScene.removeMapMarker(marker)
-        }
-        searchMarkers.clear()
-        Log.d(TAG, "Cleared search markers")
-    }
-
-    fun moveMapToLocation(coordinates: GeoCoordinates) {
-        val distanceInMeters = (1000 * 2).toDouble()
-        val mapMeasureZoom = MapMeasure(MapMeasure.Kind.DISTANCE_IN_METERS, distanceInMeters)
-        mapView.camera.lookAt(coordinates, mapMeasureZoom)
-    }
-
-    fun showLocationIndicatorPedestrian(geoCoordinates: GeoCoordinates) {
-        unTiltMap()
-        addLocationIndicator(geoCoordinates, LocationIndicator.IndicatorStyle.PEDESTRIAN)
-    }
-
-    private fun unTiltMap() {
-        val bearing = mapView.camera.state.orientationAtTarget.bearing
-        val tilt = 0.0
-        mapView.camera.setOrientationAtTarget(GeoOrientationUpdate(bearing, tilt))
-    }
-
-    private fun addLocationIndicator(
-        geoCoordinates: GeoCoordinates,
-        indicatorStyle: LocationIndicator.IndicatorStyle
-    ) {
-        val locationIndicator = LocationIndicator()
-        locationIndicator.locationIndicatorStyle = indicatorStyle
-
-        val location = Location(geoCoordinates)
-        location.time = Date()
-        location.bearingInDegrees = getRandom(0.0, 360.0)
-
-        locationIndicator.updateLocation(location)
-        locationIndicator.enable(mapView)
-        locationIndicatorList.add(locationIndicator)
-    }
-
-    private fun getRandom(min: Double, max: Double): Double {
-        return min + Math.random() * (max - min)
-    }
-
     @RequiresPermission(allOf = [Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION])
-    private fun getLocation(onLocationReceived: (GeoCoordinates?) -> Unit) {
+    private fun getLocation(onLocationReceived: (LatLng?) -> Unit) {
         try {
             locationClient.lastLocation.addOnSuccessListener { location ->
                 if (location != null) {
-                    val geoCoordinates = GeoCoordinates(location.latitude, location.longitude)
-                    Log.d(TAG, "Current location: $geoCoordinates")
-                    onLocationReceived(geoCoordinates)
+                    val latLng = LatLng(location.latitude, location.longitude)
+                    Log.d(TAG, "Current location: $latLng")
+                    onLocationReceived(latLng)
                 } else {
-                    Log.d(TAG, "Location is null.")
                     onLocationReceived(null)
                 }
             }.addOnFailureListener { e ->
-                Log.e(TAG, "Failed to get last location: ${e.message}")
+                Log.e(TAG, "Failed to get location: ${e.message}")
                 onLocationReceived(null)
             }
         } catch (e: SecurityException) {
@@ -404,193 +432,11 @@ class MapController(
         }
     }
 
-    private fun pickMapMarker(touchPoint: Point2D) {
-        val originInPixels = Point2D(touchPoint.x, touchPoint.y)
-        val sizeInPixels = Size2D(1.0, 1.0)
-        val rectangle = Rectangle2D(originInPixels, sizeInPixels)
-
-        val contentTypesToPickFrom = ArrayList<MapScene.MapPickFilter.ContentType>()
-        contentTypesToPickFrom.add(MapScene.MapPickFilter.ContentType.MAP_ITEMS)
-
-        val filter = MapScene.MapPickFilter(contentTypesToPickFrom)
-
-        mapView.pick(filter, rectangle) { mapPickResult ->
-            if (mapPickResult == null) {
-                return@pick
-            }
-
-            val pickMapItemsResult = mapPickResult.mapItems
-            val mapMarkerList = pickMapItemsResult?.markers
-
-            if (mapMarkerList?.isNotEmpty() == true) {
-                val pickedMarker = mapMarkerList[0]
-                showMarkerContextMenu(pickedMarker)
-            }
-        }
-    }
-
-    private fun showMarkerContextMenu(marker: MapMarker) {
-        val metadata = marker.metadata
-        val markerTitle = metadata?.getString("marker_title") ?: "Unknown Location"
-        val locationType = metadata?.getString("location_type") ?: "waypoint"
-
-        val isWaypoint = (locationType == "waypoint")
-        val options = if (isWaypoint) arrayOf("Remove", "Move", "Edit", "Save", "Toggle Pass-Through")
-            else arrayOf("Remove", "Move", "Edit", "Save")
-
-        // If used in PlaceMapActivity context, show minimal prompt with only Move
-        if (context is com.gocavgo.entries.manageplace.PlaceMapActivity) {
-            AlertDialog.Builder(context)
-                .setTitle("$locationType: $markerTitle")
-                .setItems(arrayOf("Move")) { dialog, which ->
-                    if (which == 0) onMarkerActionRequested?.invoke("move", marker)
-                    dialog.dismiss()
-                }
-                .setNegativeButton("Cancel") { dialog, _ -> dialog.dismiss() }
-                .show()
-            return
-        }
-
-        AlertDialog.Builder(context)
-            .setTitle("$locationType: $markerTitle")
-            .setItems(options) { dialog, which ->
-                when (which) {
-                    0 -> onMarkerActionRequested?.invoke("remove", marker)
-                    1 -> onMarkerActionRequested?.invoke("move", marker)
-                    2 -> onMarkerActionRequested?.invoke("edit", marker)
-                    3 -> onMarkerActionRequested?.invoke("save", marker)
-                    4 -> if (isWaypoint) onMarkerActionRequested?.invoke("toggle_passthrough", marker)
-                }
-                dialog.dismiss()
-            }
-            .setNegativeButton("Cancel") { dialog, _ ->
-                dialog.dismiss()
-            }
-            .show()
-    }
-
-    fun removeMarker(marker: MapMarker) {
-        mapView.mapScene.removeMapMarker(marker)
-        searchMarkers.remove(marker)
-
-        val metadata = marker.metadata
-        val markerTitle = metadata?.getString("marker_title") ?: "marker"
-        val locationType = metadata?.getString("location_type") ?: "location"
-
-        Toast.makeText(context, "Removed $locationType: $markerTitle", Toast.LENGTH_SHORT).show()
-        Log.d(TAG, "Marker removed: $locationType - $markerTitle")
-    }
-
-    @SuppressLint("SetTextI18n")
-    fun startMarkerMove(marker: MapMarker) {
-        isMovingMarker = true
-        markerToMove = marker
-
-        val metadata = marker.metadata
-        val markerTitle = metadata?.getString("marker_title") ?: "marker"
-        val locationType = metadata?.getString("location_type") ?: "location"
-
-        moveStatusText?.visibility = android.view.View.VISIBLE
-        moveStatusText?.text = "Moving '$markerTitle' ($locationType) - Long press on map to place at new location. Tap 'My Location' button to cancel."
-
-        Toast.makeText(context, "Move mode activated for: $markerTitle", Toast.LENGTH_SHORT).show()
-        Log.d(TAG, "Started moving marker: $locationType - $markerTitle")
-    }
-
-    fun editMarker(marker: MapMarker) {
-        val metadata = marker.metadata
-        val currentTitle = metadata?.getString("marker_title") ?: "Unknown Location"
-
-        val editText = android.widget.EditText(context)
-        editText.setText(currentTitle)
-        editText.selectAll()
-
-        AlertDialog.Builder(context)
-            .setTitle("Edit Marker Name")
-            .setView(editText)
-            .setPositiveButton("Save") { dialog, _ ->
-                val newTitle = editText.text.toString().trim()
-                if (newTitle.isNotEmpty()) {
-                    val updatedMetadata = marker.metadata ?: Metadata()
-                    updatedMetadata.setString("marker_title", newTitle)
-                    marker.metadata = updatedMetadata
-
-                    Toast.makeText(context, "Marker renamed to: $newTitle", Toast.LENGTH_SHORT).show()
-                    Log.d(TAG, "Marker renamed from '$currentTitle' to '$newTitle'")
-                } else {
-                    Toast.makeText(context, "Name cannot be empty", Toast.LENGTH_SHORT).show()
-                }
-                dialog.dismiss()
-            }
-            .setNegativeButton("Cancel") { dialog, _ ->
-                dialog.dismiss()
-            }
-            .show()
-
-        editText.requestFocus()
-        val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
-        imm.showSoftInput(editText, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
-    }
-
-    fun saveMarker(marker: MapMarker) {
-        val metadata = marker.metadata
-        val markerTitle = metadata?.getString("marker_title") ?: "Unknown Location"
-        val locationType = metadata?.getString("location_type") ?: "location"
-        val coordinates = marker.coordinates
-
-        Log.d(TAG, "Saved marker: $locationType - $markerTitle at ${coordinates.latitude}, ${coordinates.longitude}")
-        Toast.makeText(context, "Saved $locationType: $markerTitle", Toast.LENGTH_SHORT).show()
-    }
-
-    private fun moveMarkerToLocation(newCoordinates: GeoCoordinates) {
-        markerToMove?.let { marker ->
-            val metadata = marker.metadata
-            val markerTitle = metadata?.getString("marker_title") ?: "marker"
-            val locationType = metadata?.getString("location_type") ?: "location"
-            val oldCoordinates = marker.coordinates
-
-            Log.d(TAG, "moveMarkerToLocation called:")
-            Log.d(TAG, "  Marker: $markerTitle ($locationType)")
-            Log.d(TAG, "  Old coordinates: ${oldCoordinates.latitude}, ${oldCoordinates.longitude}")
-            Log.d(TAG, "  New coordinates: ${newCoordinates.latitude}, ${newCoordinates.longitude}")
-
-            // CRITICAL FIX: Call the callback BEFORE updating marker coordinates
-            // This allows the callback to match old coordinates with route points
-            // The callback will update the DbPlace coordinates
-            Log.d(TAG, "Calling onMarkerMoved callback...")
-            onMarkerMoved?.invoke(marker, newCoordinates)
-
-            // IMPORTANT: Update marker coordinates AFTER the callback has processed the route update
-            Log.d(TAG, "Updating marker coordinates on map...")
-            marker.coordinates = newCoordinates
-
-            // Update the metadata with new coordinates for reference
-            val updatedMetadata = marker.metadata ?: Metadata()
-            updatedMetadata.setDouble("current_lat", newCoordinates.latitude)
-            updatedMetadata.setDouble("current_lng", newCoordinates.longitude)
-            marker.metadata = updatedMetadata
-
-            Log.d(TAG, "Marker coordinates updated on map. Cancelling move mode...")
-            cancelMarkerMove()
-
-            Log.d(TAG, "Marker '$markerTitle' ($locationType) successfully moved from: ${oldCoordinates.latitude}, ${oldCoordinates.longitude} to: ${newCoordinates.latitude}, ${newCoordinates.longitude}")
-        } ?: run {
-            Log.w(TAG, "moveMarkerToLocation called but markerToMove is null")
-        }
-    }
-
-    fun cancelMarkerMove() {
-        isMovingMarker = false
-        markerToMove = null
-        moveStatusText?.visibility = android.view.View.GONE
-        Log.d(TAG, "Marker move cancelled")
-    }
-
-    /**
-     * Clear the marker image cache if needed (e.g., when changing themes)
-     */
-    fun clearMarkerImageCache() {
-        markerImageCache.clear()
-        Log.d(TAG, "Marker image cache cleared")
-    }
+    fun onCreate(savedInstanceState: Bundle?) = mapView.onCreate(savedInstanceState)
+    fun onStart() = mapView.onStart()
+    fun onResume() = mapView.onResume()
+    fun onPause() = mapView.onPause()
+    fun onStop() = mapView.onStop()
+    fun onDestroy() = mapView.onDestroy()
+    fun onSaveInstanceState(outState: Bundle) = mapView.onSaveInstanceState(outState)
 }

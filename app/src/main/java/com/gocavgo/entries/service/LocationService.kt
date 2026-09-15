@@ -2,25 +2,12 @@ package com.gocavgo.entries.service
 
 import android.util.Log
 import com.gocavgo.entries.dataclass.LocationDataDto
+import org.maplibre.android.geometry.LatLng
 
 class LocationService {
     private val locations = mutableListOf(
-        LocationDataDto(
-            id = "loc1",
-            latitude = -1.9441,
-            longitude = 30.0619,
-            googlePlaceName = "Kigali Convention Centre",
-            customName = "KCC",
-            placeId = "placeid1"
-        ),
-        LocationDataDto(
-            id = "loc2",
-            latitude = -1.9500,
-            longitude = 30.0588,
-            googlePlaceName = "Kigali Genocide Memorial",
-            customName = null,
-            placeId = "placeid2"
-        )
+        LocationDataDto(id = "loc1", latitude = -1.9441, longitude = 30.0619, googlePlaceName = "Kigali Convention Centre", customName = "KCC", placeId = "placeid1"),
+        LocationDataDto(id = "loc2", latitude = -1.9500, longitude = 30.0588, googlePlaceName = "Kigali Genocide Memorial", customName = null, placeId = "placeid2")
     )
 
     sealed class SaveResult {
@@ -31,30 +18,15 @@ class LocationService {
 
     fun getAllLocations(): List<LocationDataDto> = locations
 
-    fun getLocationById(id: String): LocationDataDto? =
-        locations.find { it.id == id }
+    fun getLocationById(id: String): LocationDataDto? = locations.find { it.id == id }
 
-    fun createLocation(
-        latLng: com.google.android.gms.maps.model.LatLng,
-        googlePlaceName: String?,
-        customName: String?,
-        placeId: String?
-    ): LocationDataDto {
-        return LocationDataDto(
-            latitude = latLng.latitude,
-            longitude = latLng.longitude,
-            googlePlaceName = googlePlaceName,
-            customName = customName,
-            placeId = placeId
-        )
+    fun createLocation(latLng: LatLng, googlePlaceName: String?, customName: String?, placeId: String?): LocationDataDto {
+        return LocationDataDto(latitude = latLng.latitude, longitude = latLng.longitude, googlePlaceName = googlePlaceName, customName = customName, placeId = placeId)
     }
 
     fun saveLocation(location: LocationDataDto): SaveResult {
         if (locations.any { it.latitude == location.latitude && it.longitude == location.longitude }) {
-            Log.d(
-                "LocationService",
-                "Location already exists: ${location.latitude}, ${location.longitude}"
-            )
+            Log.d("LocationService", "Location already exists: ${location.latitude}, ${location.longitude}")
             return SaveResult.ExistingLocation(location.id ?: "unknown")
         }
         val newId = "loc${locations.size + 1}"

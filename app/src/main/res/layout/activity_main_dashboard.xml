@@ -4,12 +4,12 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#F5F5F5">
+    android:background="@color/ui_background">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="@dimen/gmp_ref_measurement_spacing_16"
+        android:layout_marginTop="16dp"
         android:orientation="vertical"
         android:padding="18dp">
 
@@ -29,7 +29,7 @@
                 android:text="Cavgo Dashboard"
                 android:textSize="28sp"
                 android:textStyle="bold"
-                android:textColor="#333"
+                android:textColor="@color/ui_text_primary"
                 android:layout_gravity="center_horizontal" />
 
             <TextView
@@ -58,7 +58,7 @@
                 android:text="About Cavgo"
                 android:textSize="20sp"
                 android:textStyle="bold"
-                android:textColor="#333"
+                android:textColor="@color/ui_text_primary"
                 android:layout_marginBottom="12dp" />
 
             <TextView

@@ -25,24 +25,12 @@
             android:layout_weight="1"
             android:textSize="18sp"
             android:textStyle="bold"
-            android:textColor="#1A1A1A"
+            android:textColor="@color/ui_text_primary"
             android:fontFamily="sans-serif-medium"
             android:maxLines="1"
             android:ellipsize="end"
             android:lineSpacingExtra="2dp"
             tools:text="Home → Office" />
-
-        <ImageButton
-            android:id="@+id/btn_expand_route"
-            android:layout_width="20dp"
-            android:layout_height="20dp"
-            android:background="@drawable/modern_round_icon_button"
-            android:src="@android:drawable/ic_menu_more"
-            android:contentDescription="Expand route details"
-            app:tint="@color/primary_color"
-            android:elevation="1dp"
-            android:scaleType="centerInside"
-            android:padding="4dp" />
 
     </LinearLayout>
 
@@ -120,7 +108,7 @@
         android:orientation="horizontal"
         android:paddingHorizontal="20dp"
         android:paddingBottom="20dp"
-        android:background="@android:color/white"
+        android:background="@drawable/modern_route_summary_background"
         android:gravity="center">
 
         <!-- Distance Info -->
@@ -144,7 +132,7 @@
                 android:layout_height="wrap_content"
                 android:textSize="16sp"
                 android:textStyle="bold"
-                android:textColor="#1A1A1A"
+                android:textColor="@color/ui_text_primary"
                 android:fontFamily="sans-serif-medium"
                 android:gravity="center"
                 tools:text="2.5 km" />
@@ -154,7 +142,7 @@
                 android:layout_height="wrap_content"
                 android:text="Distance"
                 android:textSize="12sp"
-                android:textColor="#757575"
+                android:textColor="@color/ui_text_secondary"
                 android:fontFamily="sans-serif"
                 android:gravity="center" />
 
@@ -182,7 +170,7 @@
                 android:layout_height="wrap_content"
                 android:textSize="16sp"
                 android:textStyle="bold"
-                android:textColor="#1A1A1A"
+                android:textColor="@color/ui_text_primary"
                 android:fontFamily="sans-serif-medium"
                 android:gravity="center"
                 tools:text="8 mins" />
@@ -192,7 +180,7 @@
                 android:layout_height="wrap_content"
                 android:text="Duration"
                 android:textSize="12sp"
-                android:textColor="#757575"
+                android:textColor="@color/ui_text_secondary"
                 android:fontFamily="sans-serif"
                 android:gravity="center" />
 
@@ -222,7 +210,7 @@
                 android:layout_height="wrap_content"
                 android:textSize="16sp"
                 android:textStyle="bold"
-                android:textColor="#1A1A1A"
+                android:textColor="@color/ui_text_primary"
                 android:fontFamily="sans-serif-medium"
                 android:gravity="center"
                 tools:text="2" />
@@ -232,7 +220,7 @@
                 android:layout_height="wrap_content"
                 android:text="Waypoints"
                 android:textSize="12sp"
-                android:textColor="#757575"
+                android:textColor="@color/ui_text_secondary"
                 android:fontFamily="sans-serif"
                 android:gravity="center" />
 
@@ -271,7 +259,7 @@
                     android:text="Route Details"
                     android:textSize="20sp"
                     android:textStyle="bold"
-                    android:textColor="#1A1A1A"
+                    android:textColor="@color/ui_text_primary"
                     android:fontFamily="sans-serif-medium" />
 
             </LinearLayout>
@@ -283,7 +271,7 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:padding="20dp"
-                android:background="@android:color/white">
+                android:background="@color/ui_surface">
 
                 <TextView
                     android:layout_width="match_parent"
@@ -291,7 +279,7 @@
                     android:text="Route Configuration"
                     android:textSize="18sp"
                     android:textStyle="bold"
-                    android:textColor="#1A1A1A"
+                    android:textColor="@color/ui_text_primary"
                     android:fontFamily="sans-serif-medium"
                     android:layout_marginBottom="16dp" />
 
@@ -350,7 +338,7 @@
                         android:layout_marginStart="8dp"
                         android:text="City Route"
                         android:textSize="16sp"
-                        android:textColor="#1A1A1A"
+                        android:textColor="@color/ui_text_primary"
                         android:fontFamily="sans-serif" />
 
                 </LinearLayout>
@@ -369,7 +357,7 @@
                         android:text="Waypoint Prices"
                         android:textSize="16sp"
                         android:textStyle="bold"
-                        android:textColor="#1A1A1A"
+                        android:textColor="@color/ui_text_primary"
                         android:fontFamily="sans-serif-medium"
                         android:layout_marginBottom="12dp" />
 
@@ -391,7 +379,7 @@
                 android:orientation="horizontal"
                 android:padding="20dp"
                 android:paddingBottom="12dp"
-                android:background="@android:color/white">
+                android:background="@color/ui_surface">
 
                 <TextView
                     android:layout_width="match_parent"
@@ -399,7 +387,7 @@
                     android:text="Route Stops"
                     android:textSize="18sp"
                     android:textStyle="bold"
-                    android:textColor="#1A1A1A"
+                    android:textColor="@color/ui_text_primary"
                     android:fontFamily="sans-serif-medium" />
 
             </LinearLayout>
@@ -412,7 +400,7 @@
                 android:orientation="vertical"
                 android:paddingHorizontal="12dp"
                 android:paddingBottom="20dp"
-                android:background="@android:color/white" />
+                android:background="@color/ui_surface" />
 
             <!-- Bottom padding for better scrolling experience -->
             <View

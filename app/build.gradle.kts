@@ -21,6 +21,9 @@ android {
         versionName = "1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Navigation API base URL used by NavigationRouteClient for route calculation
+        buildConfigField("String", "NAVIGATION_BASE_URL", "\"https://api.gocavgo.com/maps\"")
     }
 //    signingConfigs {
 //        create("release") {
@@ -75,11 +78,8 @@ secrets {
 }
 
 dependencies {
-    implementation(fileTree(mapOf(
-        "dir" to "libs",
-        "include" to listOf("*.aar", "*.jar"),
-        "exclude" to listOf("*mock*.jar")
-    )))
+    // MapLibre GL Native - satellite (ESRI World Imagery) maps, no API key required
+    implementation("org.maplibre.gl:android-sdk:11.13.5")
 
     // OkHttp for HTTP requests
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
@@ -125,13 +125,8 @@ dependencies {
     implementation(libs.material)
     implementation(libs.androidx.activity)
     implementation(libs.androidx.constraintlayout)
-//    implementation(libs.places)
-    implementation(libs.places) {
-        exclude("com.google.android.gms:play-services-maps")
-    }
 
     api(libs.navigation) {
-
         exclude("com.google.android.libraries.places:places")
         exclude("com.google.android.libraries.places:play-services-location")
     }

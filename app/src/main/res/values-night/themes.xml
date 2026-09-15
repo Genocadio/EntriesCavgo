@@ -1,7 +1,22 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Base application theme. -->
     <style name="Base.Theme.Entries" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Customize your dark theme here. -->
-        <!-- <item name="colorPrimary">@color/my_dark_primary</item> -->
+        <!-- Dark theme: surface + onSurface are inverted so all Material
+             components (TextInputLayout, Switch, EditText, cards) render dark. -->
+        <item name="colorPrimary">@color/material_dynamic_primary40</item>
+        <item name="colorOnPrimary">@color/white</item>
+        <item name="colorSecondary">@color/material_dynamic_secondary40</item>
+        <item name="colorOnSecondary">@color/white</item>
+        <item name="colorSurface">@color/ui_surface</item>
+        <item name="colorOnSurface">@color/ui_text_primary</item>
+        <item name="colorSurfaceVariant">@color/ui_surface_variant</item>
+        <item name="colorOnSurfaceVariant">@color/ui_text_secondary</item>
+        <item name="colorOutline">@color/ui_border</item>
+        <item name="android:windowBackground">@color/ui_background</item>
+        <item name="android:colorBackground">@color/ui_background</item>
+        <!-- CardView default style -->
+        <item name="cardViewStyle">@style/Widget.MaterialComponents.CardView</item>
+        <!-- MaterialButton default style -->
+        <item name="materialButtonStyle">@style/Widget.Material3.Button</item>
     </style>
 </resources>

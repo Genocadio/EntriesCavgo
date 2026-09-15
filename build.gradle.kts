@@ -3,17 +3,11 @@ plugins {
     alias(libs.plugins.android.application) apply false
     alias(libs.plugins.kotlin.android) apply false
     alias(libs.plugins.kotlin.compose) apply false
-    id("com.google.devtools.ksp") version "2.2.0-2.0.2" apply false
+    id("com.google.devtools.ksp") version "2.3.6" apply false
     id("com.google.dagger.hilt.android") version "2.57" apply false
 }
 buildscript {
     dependencies {
         classpath(libs.secrets.gradle.plugin)
-    }
-}
-
-allprojects{
-    configurations.all{
-        exclude(group="com.google.android.gms", module = "play-services-maps")
     }
 }
