@@ -30,7 +30,7 @@ class RemoteDataManager {
 
     companion object {
         private const val TAG = "RemoteDataManager"
-        private const val BASE_URL = "https://api.med.rw/gocavgo/navig/"
+        private const val BASE_URL = "https://api.gocavgo.com/navig/"
 
         // Singleton instance
         @Volatile
